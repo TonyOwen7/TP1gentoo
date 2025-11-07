@@ -1,8 +1,8 @@
 #!/bin/sh
-# ===============================
+# ======================================================
 # Gentoo Automated Installation Script
-# Steps 1.2 → Configuration ready
-# ===============================
+# (with bouncer.gentoo.org for latest stage3 + portage)
+# ======================================================
 
 set -e
 
@@ -50,15 +50,15 @@ mount ${DISK}1 /mnt/gentoo/boot
 mount ${DISK}4 /mnt/gentoo/home
 swapon ${DISK}2
 
-echo "==== 4️⃣ Downloading stage3 ===="
+echo "==== 4️⃣ Downloading Stage3 via BOUNCER ===="
 cd /mnt/gentoo
-wget -q https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd.tar.xz
+wget -O stage3.tar.xz "https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd.tar.xz"
 
-echo "==== 5️⃣ Extracting stage3 ===="
-tar xpvf stage3-*.tar.xz --xattrs-include='*.*' --numeric-owner -p
+echo "==== 5️⃣ Extracting Stage3 ===="
+tar xpvf stage3.tar.xz --xattrs-include='*.*' --numeric-owner -p
 
-echo "==== 6️⃣ Downloading and extracting Portage ===="
-wget -q https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
+echo "==== 6️⃣ Downloading and extracting Portage (via BOUNCER) ===="
+wget -O portage-latest.tar.xz "https://bouncer.gentoo.org/fetch/root/all/snapshots/portage-latest.tar.xz"
 tar xpvf portage-latest.tar.xz -C /mnt/gentoo/usr
 
 echo "==== 7️⃣ Creating /mnt/gentoo/etc/fstab ===="
@@ -66,7 +66,7 @@ mkdir -p /mnt/gentoo/etc
 > /mnt/gentoo/etc/fstab
 
 blkid | grep "${DISK}" | while read -r line; do
-    UUID=$(echo "$line" | grep -o 'UUID="[^"]*"' | cut -d'"' -f2)
+    UUID=$(echo "$line" | grep -o 'UUID=\"[^\"]*\"' | cut -d'"' -f2)
     PART=$(echo "$line" | awk '{print $1}' | tr -d ':')
     case "$PART" in
         ${DISK}1) MOUNTPOINT="/boot"; FSTYPE="ext2";;
@@ -87,7 +87,6 @@ mount --rbind /sys /mnt/gentoo/sys
 mount --make-rslave /mnt/gentoo/sys
 mount --rbind /dev /mnt/gentoo/dev
 mount --make-rslave /mnt/gentoo/dev
-
 cp -L /etc/resolv.conf /mnt/gentoo/etc/
 
 echo "==== 9️⃣ Basic configuration ===="
@@ -100,9 +99,9 @@ EOT
 echo "gentoo-vm" > /mnt/gentoo/etc/hostname
 
 echo "==== 🔟 Chroot ready ===="
-echo "✅ Base Gentoo environment ready!"
+echo "✅ Base Gentoo environment installed with bouncer!"
 echo ""
-echo "👉 To enter your new system, run:"
+echo "👉 Enter your new system with:"
 echo "chroot /mnt/gentoo /bin/bash"
 echo "source /etc/profile"
 echo "export PS1=\"(chroot) \$PS1\""
