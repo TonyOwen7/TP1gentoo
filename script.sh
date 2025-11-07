@@ -1,128 +1,93 @@
-#!/bin/sh
-# ======================================================
-# Gentoo Automated Installation Script (Safe & Smart)
-# Author: ChatGPT (GPT-5)
-# ======================================================
+#!/bin/bash
+# =========================================================
+# Gentoo Installation Script — Exercises 1.2 to Configuration
+# Target Disk: /dev/sda
+# =========================================================
 
 set -e
 
-DISK="/dev/sda"
+echo "==== 🧩 Exercise 1.2 — Partitioning the Disk ===="
 
-echo "==== 1️⃣ Checking existing partitions on $DISK ===="
-if ! lsblk -f | grep -q "${DISK}1"; then
-    echo "Creating new partitions..."
-    fdisk "$DISK" << EOF
-o
-n
-p
-1
-
-+100M
-n
-p
-2
-
-+256M
-t
-2
-82
-n
-p
-3
-
-+6G
-n
-p
-4
-
-
-w
-EOF
+# Check if partitions already exist
+if lsblk /dev/sda | grep -q sda1; then
+    echo "Partitions already exist — skipping fdisk."
 else
-    echo "✅ Partitions already exist, skipping fdisk."
+    echo "Creating partitions on /dev/sda..."
+    (
+        echo o      # New DOS partition table
+        echo n; echo p; echo 1; echo ""; echo +100M  # /boot
+        echo n; echo p; echo 2; echo ""; echo +256M  # swap
+        echo n; echo p; echo 3; echo ""; echo +6G    # root
+        echo n; echo p; echo 4; echo ""; echo +6G    # home
+        echo t; echo 2; echo 82                      # mark swap
+        echo w
+    ) | fdisk /dev/sda
+    echo "Partitioning complete."
 fi
 
-echo "==== 2️⃣ Formatting partitions if needed ===="
-[ -z "$(blkid ${DISK}1)" ] && mkfs.ext2 -L boot ${DISK}1 || echo "✅ ${DISK}1 already formatted"
-[ -z "$(blkid ${DISK}2)" ] && mkswap -L swap ${DISK}2 || echo "✅ ${DISK}2 already has swap"
-[ -z "$(blkid ${DISK}3)" ] && mkfs.ext4 -L root ${DISK}3 || echo "✅ ${DISK}3 already formatted"
-[ -z "$(blkid ${DISK}4)" ] && mkfs.ext4 -L home ${DISK}4 || echo "✅ ${DISK}4 already formatted"
+echo "==== 💾 Exercise 1.3 — Formatting Partitions ===="
 
-echo "==== 3️⃣ Mounting partitions ===="
+# Format and label
+mkfs.ext2 -L boot /dev/sda1
+mkswap -L swap /dev/sda2
+mkfs.ext4 -L root /dev/sda3
+mkfs.ext4 -L home /dev/sda4
+echo "Formatting complete with labels."
+
+echo "==== 📁 Exercise 1.4 — Mounting Partitions ===="
+
 mkdir -p /mnt/gentoo
-mountpoint -q /mnt/gentoo || mount ${DISK}3 /mnt/gentoo
-mkdir -p /mnt/gentoo/{boot,home}
-mountpoint -q /mnt/gentoo/boot || mount ${DISK}1 /mnt/gentoo/boot
-mountpoint -q /mnt/gentoo/home || mount ${DISK}4 /mnt/gentoo/home
-swapon --show | grep -q "${DISK}2" || swapon ${DISK}2
+mount /dev/sda3 /mnt/gentoo
 
-echo "==== 4️⃣ Downloading Stage3 ===="
+mkdir -p /mnt/gentoo/boot
+mount /dev/sda1 /mnt/gentoo/boot
+
+mkdir -p /mnt/gentoo/home
+mount /dev/sda4 /mnt/gentoo/home
+
+swapon /dev/sda2
+echo "Partitions mounted and swap activated."
+
+echo "==== 🌐 Exercise 1.5 — Downloading stage3 and portage ===="
+
 cd /mnt/gentoo
-if [ ! -f stage3-*.tar.xz ]; then
-    wget "https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd.tar.xz"
-else
-    echo "✅ Stage3 already downloaded"
-fi
 
-echo "==== 5️⃣ Extracting Stage3 ===="
-STAGE=$(ls stage3-*.tar.xz | head -n1)
-if [ ! -d /mnt/gentoo/bin ]; then
-    tar xpvf "$STAGE" --xattrs-include='*.*' --numeric-owner -p
-else
-    echo "✅ Stage3 already extracted"
-fi
+# Stage3 URL (using Gentoo bouncer)
+STAGE3_URL=$(wget -qO- https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/latest-stage3-amd64.txt | grep -v '^#' | head -n1 | awk '{print $1}')
+wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/${STAGE3_URL}
 
-echo "==== 6️⃣ Downloading Portage ===="
-if [ ! -f portage-latest.tar.xz ]; then
-    wget "https://bouncer.gentoo.org/fetch/root/all/snapshots/portage-latest.tar.xz"
-else
-    echo "✅ Portage snapshot already exists"
-fi
+# Portage snapshot
+wget https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
 
-echo "==== 7️⃣ Extracting Portage ===="
-if [ ! -d /mnt/gentoo/usr/portage ]; then
-    tar xpvf portage-latest.tar.xz -C /mnt/gentoo/usr
-else
-    echo "✅ Portage already extracted"
-fi
+echo "Downloads complete."
 
-echo "==== 8️⃣ Generating /mnt/gentoo/etc/fstab ===="
-mkdir -p /mnt/gentoo/etc
-> /mnt/gentoo/etc/fstab
-blkid | grep "${DISK}" | while read -r line; do
-    UUID=$(echo "$line" | grep -o 'UUID=\"[^\"]*\"' | cut -d'"' -f2)
-    PART=$(echo "$line" | awk '{print $1}' | tr -d ':')
-    case "$PART" in
-        ${DISK}1) MOUNTPOINT="/boot"; FSTYPE="ext2";;
-        ${DISK}2) MOUNTPOINT="none"; FSTYPE="swap";;
-        ${DISK}3) MOUNTPOINT="/"; FSTYPE="ext4";;
-        ${DISK}4) MOUNTPOINT="/home"; FSTYPE="ext4";;
-    esac
-    if [ "$FSTYPE" = "swap" ]; then
-        echo "UUID=$UUID none swap sw 0 0" >> /mnt/gentoo/etc/fstab
-    else
-        echo "UUID=$UUID $MOUNTPOINT $FSTYPE defaults 0 1" >> /mnt/gentoo/etc/fstab
-    fi
-done
+echo "==== 📦 Exercise 1.6 — Extract Archives ===="
 
-echo "==== 9️⃣ Preparing chroot environment ===="
-mountpoint -q /mnt/gentoo/proc || mount -t proc /proc /mnt/gentoo/proc
-mountpoint -q /mnt/gentoo/sys  || mount --rbind /sys /mnt/gentoo/sys
-mountpoint -q /mnt/gentoo/dev  || mount --rbind /dev /mnt/gentoo/dev
-cp -L /etc/resolv.conf /mnt/gentoo/etc/ 2>/dev/null || true
+# Extract stage3
+tar xpvf stage3-*.tar.xz --xattrs-include='*.*' --numeric-owner -C /mnt/gentoo
 
-echo "==== 🔟 Base Configuration ===="
-cat <<EOT > /mnt/gentoo/etc/portage/make.conf
-COMMON_FLAGS="-O2 -march=native -pipe"
-MAKEOPTS="-j$(nproc)"
-USE="bindist"
-EOT
-echo "gentoo-vm" > /mnt/gentoo/etc/hostname
+# Extract portage inside /mnt/gentoo/usr
+mkdir -p /mnt/gentoo/usr
+tar xpvf portage-latest.tar.xz -C /mnt/gentoo/usr
 
-echo ""
-echo "✅ Base Gentoo environment ready!"
-echo "👉 Next step: enter chroot with these commands:"
-echo ""
-echo "chroot /mnt/gentoo /bin/bash"
-echo "source /etc/profile"
-echo "export PS1=\"(chroot) \$PS1\""
+echo "Extraction complete."
+
+echo "==== ⚙️ Configuration — fstab and basic setup ===="
+
+# Generate /etc/fstab inside /mnt/gentoo
+blkid > /tmp/blkid.txt
+BOOT_UUID=$(blkid -s UUID -o value /dev/sda1)
+SWAP_UUID=$(blkid -s UUID -o value /dev/sda2)
+ROOT_UUID=$(blkid -s UUID -o value /dev/sda3)
+HOME_UUID=$(blkid -s UUID -o value /dev/sda4)
+
+cat <<EOF > /mnt/gentoo/etc/fstab
+# /etc/fstab: static file system information.
+UUID=${ROOT_UUID}   /        ext4    defaults        0 1
+UUID=${BOOT_UUID}   /boot    ext2    defaults        0 2
+UUID=${HOME_UUID}   /home    ext4    defaults        0 2
+UUID=${SWAP_UUID}   none     swap    sw              0 0
+EOF
+
+echo "Configuration complete. Your Gentoo environment is ready under /mnt/gentoo."
+echo "Next steps: chroot into Gentoo and continue configuration."
