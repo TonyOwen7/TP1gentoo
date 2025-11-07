@@ -1,18 +1,40 @@
 #!/bin/sh
-# Gentoo Installation Script - Exercises 1.2 to 1.6
+# Gentoo Automated Installation Script
+# Covers exercises 1.2 → configuration (bootable system setup)
 
 set -e
 
 DISK="/dev/sda"
 
-echo "==== 1️⃣ Partitioning disk ($DISK) ===="
-parted -s "$DISK" mklabel msdos
-parted -s "$DISK" mkpart primary ext2 1MiB 101MiB       # /boot
-parted -s "$DISK" mkpart primary linux-swap 101MiB 357MiB # swap (≈256MiB)
-parted -s "$DISK" mkpart primary ext4 357MiB 6653MiB     # /
-parted -s "$DISK" mkpart primary ext4 6653MiB 12853MiB    # /home
+echo "==== 1️⃣ Partitioning $DISK using fdisk ===="
 
-sync
+fdisk "$DISK" << EOF
+o
+n
+p
+1
+
++100M
+n
+p
+2
+
++256M
+t
+2
+82
+n
+p
+3
+
++6G
+n
+p
+4
+
+
+w
+EOF
 
 echo "==== 2️⃣ Formatting partitions ===="
 mkfs.ext2 -L boot ${DISK}1
@@ -27,7 +49,7 @@ mount ${DISK}1 /mnt/gentoo/boot
 mount ${DISK}4 /mnt/gentoo/home
 swapon ${DISK}2
 
-echo "==== 4️⃣ Downloading stage3 archive ===="
+echo "==== 4️⃣ Downloading stage3 ===="
 cd /mnt/gentoo
 wget -q https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd.tar.xz
 
@@ -38,5 +60,45 @@ echo "==== 6️⃣ Downloading and extracting Portage ===="
 wget -q https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
 tar xpvf portage-latest.tar.xz -C /mnt/gentoo/usr
 
-echo "==== ✅ Done! Your Gentoo base system is ready in /mnt/gentoo ===="
-echo "Next steps: configure /mnt/gentoo/etc/fstab, network, and chroot environment."
+echo "==== 7️⃣ Generating /etc/fstab ===="
+blkid | grep "${DISK}" | while read -r line; do
+    UUID=$(echo "$line" | grep -o 'UUID="[^"]*"' | cut -d'"' -f2)
+    PART=$(echo "$line" | awk '{print $1}' | tr -d ':')
+    case "$PART" in
+        ${DISK}1) MOUNTPOINT="/boot"; FSTYPE="ext2";;
+        ${DISK}2) MOUNTPOINT="none"; FSTYPE="swap";;
+        ${DISK}3) MOUNTPOINT="/"; FSTYPE="ext4";;
+        ${DISK}4) MOUNTPOINT="/home"; FSTYPE="ext4";;
+    esac
+    if [ "$FSTYPE" = "swap" ]; then
+        echo "UUID=$UUID none swap sw 0 0" >> /mnt/gentoo/etc/fstab
+    else
+        echo "UUID=$UUID $MOUNTPOINT $FSTYPE defaults 0 1" >> /mnt/gentoo/etc/fstab
+    fi
+done
+
+echo "==== 8️⃣ Preparing chroot environment ===="
+mount --types proc /proc /mnt/gentoo/proc
+mount --rbind /sys /mnt/gentoo/sys
+mount --make-rslave /mnt/gentoo/sys
+mount --rbind /dev /mnt/gentoo/dev
+mount --make-rslave /mnt/gentoo/dev
+
+echo "==== 9️⃣ Basic configuration ===="
+cp -L /etc/resolv.conf /mnt/gentoo/etc/
+
+cat <<EOT > /mnt/gentoo/etc/portage/make.conf
+COMMON_FLAGS="-O2 -march=native -pipe"
+MAKEOPTS="-j$(nproc)"
+USE="bindist"
+EOT
+
+echo "gentoo-vm" > /mnt/gentoo/etc/hostname
+
+echo "==== 🔟 Chroot ready ===="
+echo "Run the following to enter your system:"
+echo "chroot /mnt/gentoo /bin/bash"
+echo "source /etc/profile"
+echo "export PS1=\"(chroot) \$PS1\""
+
+echo "==== ✅ Gentoo base + config done ===="
