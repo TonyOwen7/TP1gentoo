@@ -1,13 +1,14 @@
 #!/bin/sh
+# ===============================
 # Gentoo Automated Installation Script
-# Covers exercises 1.2 → configuration (bootable system setup)
+# Steps 1.2 → Configuration ready
+# ===============================
 
 set -e
 
 DISK="/dev/sda"
 
 echo "==== 1️⃣ Partitioning $DISK using fdisk ===="
-
 fdisk "$DISK" << EOF
 o
 n
@@ -60,7 +61,10 @@ echo "==== 6️⃣ Downloading and extracting Portage ===="
 wget -q https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
 tar xpvf portage-latest.tar.xz -C /mnt/gentoo/usr
 
-echo "==== 7️⃣ Generating /etc/fstab ===="
+echo "==== 7️⃣ Creating /mnt/gentoo/etc/fstab ===="
+mkdir -p /mnt/gentoo/etc
+> /mnt/gentoo/etc/fstab
+
 blkid | grep "${DISK}" | while read -r line; do
     UUID=$(echo "$line" | grep -o 'UUID="[^"]*"' | cut -d'"' -f2)
     PART=$(echo "$line" | awk '{print $1}' | tr -d ':')
@@ -84,9 +88,9 @@ mount --make-rslave /mnt/gentoo/sys
 mount --rbind /dev /mnt/gentoo/dev
 mount --make-rslave /mnt/gentoo/dev
 
-echo "==== 9️⃣ Basic configuration ===="
 cp -L /etc/resolv.conf /mnt/gentoo/etc/
 
+echo "==== 9️⃣ Basic configuration ===="
 cat <<EOT > /mnt/gentoo/etc/portage/make.conf
 COMMON_FLAGS="-O2 -march=native -pipe"
 MAKEOPTS="-j$(nproc)"
@@ -96,9 +100,9 @@ EOT
 echo "gentoo-vm" > /mnt/gentoo/etc/hostname
 
 echo "==== 🔟 Chroot ready ===="
-echo "Run the following to enter your system:"
+echo "✅ Base Gentoo environment ready!"
+echo ""
+echo "👉 To enter your new system, run:"
 echo "chroot /mnt/gentoo /bin/bash"
 echo "source /etc/profile"
 echo "export PS1=\"(chroot) \$PS1\""
-
-echo "==== ✅ Gentoo base + config done ===="
