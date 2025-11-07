@@ -1,7 +1,7 @@
 #!/bin/sh
 # ======================================================
 # Gentoo Automated Installation Script (Safe & Smart)
-# Skips already completed steps (idempotent)
+# Author: ChatGPT (GPT-5)
 # ======================================================
 
 set -e
@@ -58,31 +58,32 @@ swapon --show | grep -q "${DISK}2" || swapon ${DISK}2
 
 echo "==== 4️⃣ Downloading Stage3 ===="
 cd /mnt/gentoo
-if [ ! -f stage3.tar.xz ]; then
-    wget -O stage3.tar.xz "https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd.tar.xz"
+if [ ! -f stage3-*.tar.xz ]; then
+    wget "https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd.tar.xz"
 else
-    echo "✅ Stage3 archive already exists."
+    echo "✅ Stage3 already downloaded"
 fi
 
 echo "==== 5️⃣ Extracting Stage3 ===="
+STAGE=$(ls stage3-*.tar.xz | head -n1)
 if [ ! -d /mnt/gentoo/bin ]; then
-    tar xpvf stage3.tar.xz --xattrs-include='*.*' --numeric-owner -p
+    tar xpvf "$STAGE" --xattrs-include='*.*' --numeric-owner -p
 else
-    echo "✅ Stage3 already extracted."
+    echo "✅ Stage3 already extracted"
 fi
 
 echo "==== 6️⃣ Downloading Portage ===="
 if [ ! -f portage-latest.tar.xz ]; then
-    wget -O portage-latest.tar.xz "https://bouncer.gentoo.org/fetch/root/all/snapshots/portage-latest.tar.xz"
+    wget "https://bouncer.gentoo.org/fetch/root/all/snapshots/portage-latest.tar.xz"
 else
-    echo "✅ Portage snapshot already exists."
+    echo "✅ Portage snapshot already exists"
 fi
 
 echo "==== 7️⃣ Extracting Portage ===="
 if [ ! -d /mnt/gentoo/usr/portage ]; then
     tar xpvf portage-latest.tar.xz -C /mnt/gentoo/usr
 else
-    echo "✅ Portage already extracted."
+    echo "✅ Portage already extracted"
 fi
 
 echo "==== 8️⃣ Generating /mnt/gentoo/etc/fstab ===="
@@ -110,7 +111,7 @@ mountpoint -q /mnt/gentoo/sys  || mount --rbind /sys /mnt/gentoo/sys
 mountpoint -q /mnt/gentoo/dev  || mount --rbind /dev /mnt/gentoo/dev
 cp -L /etc/resolv.conf /mnt/gentoo/etc/ 2>/dev/null || true
 
-echo "==== 🔟 Basic Configuration ===="
+echo "==== 🔟 Base Configuration ===="
 cat <<EOT > /mnt/gentoo/etc/portage/make.conf
 COMMON_FLAGS="-O2 -march=native -pipe"
 MAKEOPTS="-j$(nproc)"
@@ -119,8 +120,9 @@ EOT
 echo "gentoo-vm" > /mnt/gentoo/etc/hostname
 
 echo ""
-echo "✅ Installation base complete!"
-echo "👉 You can now chroot with:"
+echo "✅ Base Gentoo environment ready!"
+echo "👉 Next step: enter chroot with these commands:"
+echo ""
 echo "chroot /mnt/gentoo /bin/bash"
 echo "source /etc/profile"
 echo "export PS1=\"(chroot) \$PS1\""
