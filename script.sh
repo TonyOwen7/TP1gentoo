@@ -25,14 +25,30 @@ fi
 
 echo "==== 💾 Ex. 1.3 — Formatting Partitions ===="
 
-if blkid /dev/sda1 >/dev/null 2>&1; then
-  echo "✅ Filesystems already formatted — skipping."
-else
+# /boot
+if ! blkid -s TYPE -o value /dev/sda1 | grep -q ext2; then
+  echo "Formatting /boot..."
   mkfs.ext2 -L boot /dev/sda1
+fi
+
+# swap
+if ! blkid -s TYPE -o value /dev/sda2 | grep -q swap; then
+  echo "Setting up swap..."
   mkswap -L swap /dev/sda2
+fi
+
+# root /
+if ! blkid -s TYPE -o value /dev/sda3 | grep -q ext4; then
+  echo "Formatting root /..."
   mkfs.ext4 -L root /dev/sda3
+fi
+
+# /home
+if ! blkid -s TYPE -o value /dev/sda4 | grep -q ext4; then
+  echo "Formatting /home..."
   mkfs.ext4 -L home /dev/sda4
 fi
+
 
 echo "==== 📁 Ex. 1.4 — Mounting Partitions and Enabling Swap ===="
 
