@@ -1,6 +1,6 @@
 #!/bin/bash
 # ========================================================
-# Gentoo Installation Script — Up to Configuration
+# Gentoo Installation Script — Up to Exercice 1.9
 # Disk: /dev/sda
 # ========================================================
 
@@ -34,85 +34,95 @@ else
   mkfs.ext4 -L home /dev/sda4
 fi
 
-echo "==== 📁 Ex. 1.4 — Mounting Filesystems and Enabling Swap ===="
+echo "==== 📁 Ex. 1.4 — Mounting Partitions and Enabling Swap ===="
 
-if mount | grep -q "/mnt/gentoo "; then
-  echo "✅ Root already mounted."
-else
-  mkdir -p /mnt/gentoo
-  mount /dev/sda3 /mnt/gentoo
-fi
+mkdir -p /mnt/gentoo
+mountpoint -q /mnt/gentoo || mount /dev/sda3 /mnt/gentoo
+mkdir -p /mnt/gentoo/boot
+mountpoint -q /mnt/gentoo/boot || mount /dev/sda1 /mnt/gentoo/boot
+mkdir -p /mnt/gentoo/home
+mountpoint -q /mnt/gentoo/home || mount /dev/sda4 /mnt/gentoo/home
+swapon /dev/sda2 || true
 
-if mount | grep -q "/mnt/gentoo/boot "; then
-  echo "✅ Boot already mounted."
-else
-  mkdir -p /mnt/gentoo/boot
-  mount /dev/sda1 /mnt/gentoo/boot
-fi
+echo "==== 🗂️ Generating /mnt/gentoo/etc/fstab ===="
 
-if mount | grep -q "/mnt/gentoo/home "; then
-  echo "✅ Home already mounted."
-else
-  mkdir -p /mnt/gentoo/home
-  mount /dev/sda4 /mnt/gentoo/home
-fi
+mkdir -p /mnt/gentoo/etc
+cat > /mnt/gentoo/etc/fstab <<EOF
+LABEL=root   /       ext4    defaults,noatime 0 1
+LABEL=boot   /boot   ext2    defaults         0 2
+LABEL=home   /home   ext4    defaults,noatime 0 2
+LABEL=swap   none    swap    sw               0 0
+EOF
 
-if swapon --show | grep -q /dev/sda2; then
-  echo "✅ Swap already active."
-else
-  swapon /dev/sda2
-fi
+echo "✅ /etc/fstab generated successfully:"
+cat /mnt/gentoo/etc/fstab
 
 echo "==== 🌐 Ex. 1.5 — Downloading Stage 3 ===="
 
 cd /mnt/gentoo
-
-if [ -d "/mnt/gentoo/bin" ]; then
-  echo "✅ Stage 3 already extracted — skipping download."
-else
+if [ ! -d bin ]; then
   if [ ! -f stage3-amd64-systemd-latest.tar.xz ]; then
     wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz
   fi
-  echo "📦 Extracting Stage 3..."
   tar xpf stage3-amd64-systemd-latest.tar.xz --xattrs-include='*.*' --numeric-owner
+else
+  echo "✅ Stage3 already extracted."
 fi
 
-echo "==== 🌍 Downloading Portage Snapshot from distfiles ===="
+echo "==== 📦 Ex. 1.6 — Downloading and Extracting Portage ===="
 
 cd /mnt/gentoo/usr
-
-if [ -d "/mnt/gentoo/usr/portage" ]; then
-  echo "✅ Portage already extracted — skipping download."
-else
+if [ ! -d /mnt/gentoo/usr/portage ]; then
   wget https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
-  echo "📦 Extracting Portage..."
   tar xpf portage-latest.tar.xz -C /mnt/gentoo/usr
+else
+  echo "✅ Portage already installed."
 fi
 
 echo "==== ⚙️ Preparing Configuration Environment ===="
 
-if mount | grep -q "/mnt/gentoo/proc"; then
-  echo "✅ proc already mounted."
-else
-  mount --types proc /proc /mnt/gentoo/proc
-fi
+mount --types proc /proc /mnt/gentoo/proc
+mount --rbind /sys /mnt/gentoo/sys
+mount --make-rslave /mnt/gentoo/sys
+mount --rbind /dev /mnt/gentoo/dev
+mount --make-rslave /mnt/gentoo/dev
 
-if mount | grep -q "/mnt/gentoo/sys"; then
-  echo "✅ sys already mounted."
-else
-  mount --rbind /sys /mnt/gentoo/sys
-  mount --make-rslave /mnt/gentoo/sys
-fi
+echo "==== 🧩 Ex. 1.7 — Chrooting into Gentoo Environment ===="
 
-if mount | grep -q "/mnt/gentoo/dev"; then
-  echo "✅ dev already mounted."
-else
-  mount --rbind /dev /mnt/gentoo/dev
-  mount --make-rslave /mnt/gentoo/dev
-fi
+chroot /mnt/gentoo /bin/bash <<'CHROOT_CMDS'
+source /etc/profile
+export PS1="(chroot) \$PS1"
 
-echo "==== ✅ All steps up to configuration completed ===="
-echo "You can now chroot into Gentoo with:"
-echo "chroot /mnt/gentoo /bin/bash"
-echo "source /etc/profile"
-echo "export PS1=\"(chroot) \$PS1\""
+echo "==== 🏗️ Ex. 1.8 — System Configuration ===="
+
+# Keyboard layout
+echo 'keymap="fr-latin1"' > /etc/conf.d/keymaps
+
+# Locale setup
+echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+echo "fr_FR.UTF-8 UTF-8" >> /etc/locale.gen
+locale-gen
+eselect locale set fr_FR.utf8
+env-update && source /etc/profile
+
+# Hostname
+echo "gentoo" > /etc/hostname
+
+# Timezone
+ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
+echo "Europe/Paris" > /etc/timezone
+
+# Network (DHCP)
+echo 'config_eth0="dhcp"' > /etc/conf.d/net
+cd /etc/init.d
+ln -s net.lo net.eth0 || true
+rc-update add net.eth0 default
+emerge --sync || true
+emerge --ask --noreplace dhcpcd || true
+
+echo "==== 📦 Ex. 1.9 — Installing htop ===="
+
+emerge --ask htop || true
+
+echo "==== ✅ Base Gentoo configuration complete ===="
+CHROOT_CMDS
