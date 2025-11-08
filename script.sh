@@ -37,11 +37,11 @@ fi
 echo "==== 📁 Ex. 1.4 — Mounting Partitions and Enabling Swap ===="
 
 mkdir -p /mnt/gentoo
-mountpoint -q /mnt/gentoo || mount /dev/sda3 /mnt/gentoo
+mount /dev/sda3 /mnt/gentoo
 mkdir -p /mnt/gentoo/boot
-mountpoint -q /mnt/gentoo/boot || mount /dev/sda1 /mnt/gentoo/boot
+mount /dev/sda1 /mnt/gentoo/boot
 mkdir -p /mnt/gentoo/home
-mountpoint -q /mnt/gentoo/home || mount /dev/sda4 /mnt/gentoo/home
+mount /dev/sda4 /mnt/gentoo/home
 swapon /dev/sda2 || true
 
 echo "==== 🗂️ Generating /mnt/gentoo/etc/fstab ===="
