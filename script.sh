@@ -70,21 +70,21 @@ cd /mnt/gentoo
 if [ -d "/mnt/gentoo/bin" ]; then
   echo "✅ Stage 3 already extracted — skipping download."
 else
-  if [ ! -f stage3-amd64-systemd-20251102T165025Z.tar.xz ]; then
-    wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20251102T165025Z.tar.xz
+  if [ ! -f stage3-amd64-systemd-latest.tar.xz ]; then
+    wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz
   fi
   echo "📦 Extracting Stage 3..."
-  tar xpf stage3-amd64-systemd-20251102T165025Z.tar.xz --xattrs-include='*.*' --numeric-owner
+  tar xpf stage3-amd64-systemd-latest.tar.xz --xattrs-include='*.*' --numeric-owner
 fi
 
-echo "==== 🌍 Downloading Portage Snapshot ===="
+echo "==== 🌍 Downloading Portage Snapshot from distfiles ===="
 
 cd /mnt/gentoo/usr
 
 if [ -d "/mnt/gentoo/usr/portage" ]; then
   echo "✅ Portage already extracted — skipping download."
 else
-  wget https://bouncer.gentoo.org/fetch/root/all/releases/snapshots/current/portage-latest.tar.xz
+  wget https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
   echo "📦 Extracting Portage..."
   tar xpf portage-latest.tar.xz -C /mnt/gentoo/usr
 fi
