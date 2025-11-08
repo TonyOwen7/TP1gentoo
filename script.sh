@@ -76,8 +76,8 @@ echo "==== 🌐 Ex. 1.5 — Downloading Stage 3 ===="
 
 cd /mnt/gentoo
 if [ ! -d bin ]; then
-  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz
-  tar xpf stage3-amd64-systemd-latest.tar.xz --xattrs-include='*.*' --numeric-owner
+  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20251102T165025Z.tar.xz
+  tar xpf stage3-amd64-systemd-20251102T165025Z.tar.xz --xattrs-include='*.*' --numeric-owner
 else
   echo "✅ Stage3 already extracted."
 fi
