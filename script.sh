@@ -106,7 +106,7 @@ cd /mnt/gentoo
 if ls stage3-amd64-systemd-*.tar.xz >/dev/null 2>&1; then
   echo "✅ Stage3 archive already exists."
 else
-  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz
+  links https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/
 fi
 
 echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
