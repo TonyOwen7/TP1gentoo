@@ -4,7 +4,7 @@
 # Disk: /dev/sda
 # ========================================================
 
-set -e
+set -euo pipefail
 
 echo "==== 🧩 Ex. 1.2 — Partitioning the Disk (/dev/sda) ===="
 
@@ -25,41 +25,63 @@ fi
 
 echo "==== 💾 Ex. 1.3 — Formatting Partitions ===="
 
-# On reformate toujours (simple, sûr)
-mkfs.ext2 -L boot /dev/sda1
-mkswap -L swap /dev/sda2
-mkfs.ext4 -L root /dev/sda3
-mkfs.ext4 -L home /dev/sda4
+# Boot
+if mountpoint -q /mnt/gentoo/boot; then
+  echo "✅ /dev/sda1 already mounted, skipping mkfs."
+else
+  mkfs.ext2 -L boot /dev/sda1
+fi
+
+# Swap
+if swapon --show | grep -q "/dev/sda2"; then
+  echo "✅ Swap already active, skipping mkswap."
+else
+  mkswap -L swap /dev/sda2
+fi
+
+# Root
+if mountpoint -q /mnt/gentoo; then
+  echo "✅ /dev/sda3 already mounted, skipping mkfs."
+else
+  mkfs.ext4 -L root /dev/sda3
+fi
+
+# Home
+if mountpoint -q /mnt/gentoo/home; then
+  echo "✅ /dev/sda4 already mounted, skipping mkfs."
+else
+  mkfs.ext4 -L home /dev/sda4
+fi
 
 echo "==== 📁 Ex. 1.4 — Mounting Partitions and Enabling Swap ===="
 
 mkdir -p /mnt/gentoo
 
-# Mount / only if not already mounted
-if mount | grep -q "/mnt/gentoo "; then
+# Root
+if mountpoint -q /mnt/gentoo; then
   echo "✅ /mnt/gentoo already mounted."
 else
   mount /dev/sda3 /mnt/gentoo
 fi
 
-# Mount /boot
+# Boot
 mkdir -p /mnt/gentoo/boot
-if mount | grep -q "/mnt/gentoo/boot "; then
+if mountpoint -q /mnt/gentoo/boot; then
   echo "✅ /mnt/gentoo/boot already mounted."
 else
   mount /dev/sda1 /mnt/gentoo/boot
 fi
 
-# Mount /home
+# Home
 mkdir -p /mnt/gentoo/home
-if mount | grep -q "/mnt/gentoo/home "; then
+if mountpoint -q /mnt/gentoo/home; then
   echo "✅ /mnt/gentoo/home already mounted."
 else
   mount /dev/sda4 /mnt/gentoo/home
 fi
 
-# Enable swap if not active
-if swapon --show | grep -q sda2; then
+# Swap
+if swapon --show | grep -q "/dev/sda2"; then
   echo "✅ Swap already active."
 else
   swapon /dev/sda2
@@ -109,13 +131,13 @@ fi
 echo "==== ⚙️ Preparing chroot environment ===="
 
 # Mount proc/sys/dev only if not yet mounted
-if ! mount | grep -q "/mnt/gentoo/proc "; then
+if ! mountpoint -q /mnt/gentoo/proc; then
   mount -t proc /proc /mnt/gentoo/proc
 fi
-if ! mount | grep -q "/mnt/gentoo/sys "; then
+if ! mountpoint -q /mnt/gentoo/sys; then
   mount --rbind /sys /mnt/gentoo/sys
 fi
-if ! mount | grep -q "/mnt/gentoo/dev "; then
+if ! mountpoint -q /mnt/gentoo/dev; then
   mount --rbind /dev /mnt/gentoo/dev
 fi
 
