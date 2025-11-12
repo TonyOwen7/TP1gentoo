@@ -2,6 +2,7 @@
 # ========================================================
 # Gentoo Installation Script — TP1 (Ex. 1.1 → 1.9)
 # Disk: /dev/sda
+# Secure version with GPG verification
 # ========================================================
 
 set -euo pipefail
@@ -25,67 +26,20 @@ fi
 
 echo "==== 💾 Ex. 1.3 — Formatting Partitions ===="
 
-# Boot
-if mountpoint -q /mnt/gentoo/boot; then
-  echo "✅ /dev/sda1 already mounted, skipping mkfs."
-else
-  mkfs.ext2 -L boot /dev/sda1
-fi
-
-# Swap
-if swapon --show | grep -q "/dev/sda2"; then
-  echo "✅ Swap already active, skipping mkswap."
-else
-  mkswap -L swap /dev/sda2
-fi
-
-# Root
-if mountpoint -q /mnt/gentoo; then
-  echo "✅ /dev/sda3 already mounted, skipping mkfs."
-else
-  mkfs.ext4 -L root /dev/sda3
-fi
-
-# Home
-if mountpoint -q /mnt/gentoo/home; then
-  echo "✅ /dev/sda4 already mounted, skipping mkfs."
-else
-  mkfs.ext4 -L home /dev/sda4
-fi
+mkfs.ext2 -L boot /dev/sda1 || true
+mkswap -L swap /dev/sda2 || true
+mkfs.ext4 -L root /dev/sda3 || true
+mkfs.ext4 -L home /dev/sda4 || true
 
 echo "==== 📁 Ex. 1.4 — Mounting Partitions and Enabling Swap ===="
 
 mkdir -p /mnt/gentoo
-
-# Root
-if mountpoint -q /mnt/gentoo; then
-  echo "✅ /mnt/gentoo already mounted."
-else
-  mount /dev/sda3 /mnt/gentoo
-fi
-
-# Boot
+mount /dev/sda3 /mnt/gentoo
 mkdir -p /mnt/gentoo/boot
-if mountpoint -q /mnt/gentoo/boot; then
-  echo "✅ /mnt/gentoo/boot already mounted."
-else
-  mount /dev/sda1 /mnt/gentoo/boot
-fi
-
-# Home
+mount /dev/sda1 /mnt/gentoo/boot
 mkdir -p /mnt/gentoo/home
-if mountpoint -q /mnt/gentoo/home; then
-  echo "✅ /mnt/gentoo/home already mounted."
-else
-  mount /dev/sda4 /mnt/gentoo/home
-fi
-
-# Swap
-if swapon --show | grep -q "/dev/sda2"; then
-  echo "✅ Swap already active."
-else
-  swapon /dev/sda2
-fi
+mount /dev/sda4 /mnt/gentoo/home
+swapon /dev/sda2
 
 echo "==== 🗂️ Generating /mnt/gentoo/etc/fstab ===="
 
@@ -100,22 +54,32 @@ EOF
 echo "✅ /etc/fstab generated successfully:"
 cat /mnt/gentoo/etc/fstab
 
-echo "==== 🌐 Ex. 1.5 — Downloading Stage 3 ===="
+echo "==== 🌐 Ex. 1.5 — Downloading Stage 3 (secure) ===="
 
 cd /mnt/gentoo
 if [ -f stage3-amd64-systemd-20251109T170053Z.tar.xz ]; then
   echo "✅ Stage3 archive already exists."
 else
   wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20251109T170053Z.tar.xz
+  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20251109T170053Z.tar.xz.asc
 fi
+
+echo "==== 🔑 Importing Gentoo Release Key ===="
+if [ -f /usr/share/openpgp-keys/gentoo-release.asc ]; then
+  gpg --import /usr/share/openpgp-keys/gentoo-release.asc
+else
+  echo "❌ Gentoo release key not found locally. Install app-crypt/openpgp-keys-gentoo-release."
+  exit 1
+fi
+
+echo "==== 🔍 Verifying Stage 3 signature ===="
+gpg --verify stage3-amd64-systemd-20251109T170053Z.tar.xz.asc stage3-amd64-systemd-20251109T170053Z.tar.xz || {
+  echo "❌ Signature verification failed. Aborting installation."
+  exit 1
+}
 
 echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
-
-if [ -d /mnt/gentoo/bin ]; then
-  echo "✅ Stage3 already extracted."
-else
-  tar xpf stage3-amd64-systemd-20251109T170053Z.tar.xz --xattrs-include='*.*' --numeric-owner
-fi
+tar xpf stage3-amd64-systemd-20251109T170053Z.tar.xz --xattrs-include='*.*' --numeric-owner
 
 echo "==== 📦 Ex. 1.6 (suite) — Installing Portage ===="
 
@@ -130,16 +94,9 @@ fi
 
 echo "==== ⚙️ Preparing chroot environment ===="
 
-# Mount proc/sys/dev only if not yet mounted
-if ! mountpoint -q /mnt/gentoo/proc; then
-  mount -t proc /proc /mnt/gentoo/proc
-fi
-if ! mountpoint -q /mnt/gentoo/sys; then
-  mount --rbind /sys /mnt/gentoo/sys
-fi
-if ! mountpoint -q /mnt/gentoo/dev; then
-  mount --rbind /dev /mnt/gentoo/dev
-fi
+mount -t proc /proc /mnt/gentoo/proc
+mount --rbind /sys /mnt/gentoo/sys
+mount --rbind /dev /mnt/gentoo/dev
 
 echo "==== 🧩 Ex. 1.7 — Chrooting into Gentoo Environment ===="
 
