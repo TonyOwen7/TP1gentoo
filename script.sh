@@ -2,7 +2,7 @@
 # ========================================================
 # Gentoo Installation Script — TP1 (Ex. 1.1 → 1.9)
 # Disk: /dev/sda
-# Secure version with GPG verification
+# Secure version with fixed stage3 (20251109T170053Z)
 # ========================================================
 
 set -euo pipefail
@@ -60,8 +60,8 @@ cd /mnt/gentoo
 if [ -f stage3-amd64-systemd-20251109T170053Z.tar.xz ]; then
   echo "✅ Stage3 archive already exists."
 else
-  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20251109T170053Z.tar.xz
-  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20251109T170053Z.tar.xz.asc
+  wget https://distfiles.gentoo.org/releases/amd64/autobuilds/20251109T170053Z/stage3-amd64-systemd-20251109T170053Z.tar.xz
+  wget https://distfiles.gentoo.org/releases/amd64/autobuilds/20251109T170053Z/stage3-amd64-systemd-20251109T170053Z.tar.xz.asc
 fi
 
 echo "==== 🔑 Importing Gentoo Release Key ===="
