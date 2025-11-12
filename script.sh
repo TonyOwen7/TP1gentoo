@@ -106,7 +106,8 @@ cd /mnt/gentoo
 if ls stage3-amd64-systemd-*.tar.xz >/dev/null 2>&1; then
   echo "✅ Stage3 archive already exists."
 else
-  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20250302T170343Z.tar.xz
+  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz
+  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz.asc
 fi
 
 echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
@@ -114,6 +115,13 @@ echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
 if [ -d /mnt/gentoo/bin ]; then
   echo "✅ Stage3 already extracted."
 else
+  # Vérification GPG si gpg est installé
+  if command -v gpg >/dev/null 2>&1; then
+    gpg --verify stage3-amd64-systemd-latest.tar.xz.asc stage3-amd64-systemd-latest.tar.xz || {
+      echo "❌ Signature GPG invalide, arrêt."
+      exit 1
+    }
+  fi
   tar xpf stage3-amd64-systemd-*.tar.xz --xattrs-include='*.*' --numeric-owner
 fi
 
