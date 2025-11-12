@@ -73,10 +73,10 @@ else
 fi
 
 echo "==== 🔍 Verifying Stage 3 signature ===="
-gpg --verify stage3-amd64-systemd-20251109T170053Z.tar.xz.asc stage3-amd64-systemd-20251109T170053Z.tar.xz || {
+if ! gpg --verify stage3-amd64-systemd-20251109T170053Z.tar.xz.asc stage3-amd64-systemd-20251109T170053Z.tar.xz; then
   echo "❌ Signature verification failed. Aborting installation."
   exit 1
-}
+fi
 
 echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
 tar xpf stage3-amd64-systemd-20251109T170053Z.tar.xz --xattrs-include='*.*' --numeric-owner
