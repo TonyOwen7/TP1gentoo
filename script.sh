@@ -1,6 +1,6 @@
 #!/bin/bash
 # ========================================================
-# Gentoo Installation Script — Full TP 1 (1.2 → 1.9)
+# Gentoo Installation Script — TP1 (Ex. 1.1 → 1.9)
 # Disk: /dev/sda
 # ========================================================
 
@@ -9,46 +9,27 @@ set -e
 echo "==== 🧩 Ex. 1.2 — Partitioning the Disk (/dev/sda) ===="
 
 if lsblk /dev/sda | grep -q sda1; then
-  echo "✅ Partitions already exist — skipping fdisk."
+  echo "✅ Partitions already exist — skipping fdisk setup."
 else
-  echo "Creating new partitions..."
+  echo "Creating new partition table and partitions..."
   (
-    echo o          # new DOS table
-    echo n; echo p; echo 1; echo ""; echo +100M
-    echo n; echo p; echo 2; echo ""; echo +256M
-    echo t; echo 2; echo 82
-    echo n; echo p; echo 3; echo ""; echo +6G
-    echo n; echo p; echo 4; echo ""; echo +6G
+    echo o          # new DOS partition table
+    echo n; echo p; echo 1; echo ""; echo +100M    # /boot
+    echo n; echo p; echo 2; echo ""; echo +256M    # swap
+    echo n; echo p; echo 3; echo ""; echo +6G      # /
+    echo n; echo p; echo 4; echo ""; echo +6G      # /home
+    echo t; echo 2; echo 82                        # set partition 2 type to swap
     echo w
   ) | fdisk /dev/sda
 fi
 
 echo "==== 💾 Ex. 1.3 — Formatting Partitions ===="
 
-# /boot
-if ! blkid -s TYPE -o value /dev/sda1 | grep -q ext2; then
-  echo "Formatting /boot..."
-  mkfs.ext2 -L boot /dev/sda1
-fi
-
-# swap
-if ! blkid -s TYPE -o value /dev/sda2 | grep -q swap; then
-  echo "Setting up swap..."
-  mkswap -L swap /dev/sda2
-fi
-
-# root /
-if ! blkid -s TYPE -o value /dev/sda3 | grep -q ext4; then
-  echo "Formatting root /..."
-  mkfs.ext4 -L root /dev/sda3
-fi
-
-# /home
-if ! blkid -s TYPE -o value /dev/sda4 | grep -q ext4; then
-  echo "Formatting /home..."
-  mkfs.ext4 -L home /dev/sda4
-fi
-
+# On reformate même si déjà fait, pour éviter tout FS corrompu
+mkfs.ext2 -L boot /dev/sda1
+mkswap -L swap /dev/sda2
+mkfs.ext4 -L root /dev/sda3
+mkfs.ext4 -L home /dev/sda4
 
 echo "==== 📁 Ex. 1.4 — Mounting Partitions and Enabling Swap ===="
 
@@ -58,7 +39,7 @@ mkdir -p /mnt/gentoo/boot
 mount /dev/sda1 /mnt/gentoo/boot
 mkdir -p /mnt/gentoo/home
 mount /dev/sda4 /mnt/gentoo/home
-swapon /dev/sda2 || true
+swapon /dev/sda2
 
 echo "==== 🗂️ Generating /mnt/gentoo/etc/fstab ===="
 
@@ -70,20 +51,23 @@ LABEL=home   /home   ext4    defaults,noatime 0 2
 LABEL=swap   none    swap    sw               0 0
 EOF
 
-echo "✅ /etc/fstab generated."
+echo "✅ /etc/fstab generated successfully:"
+cat /mnt/gentoo/etc/fstab
 
 echo "==== 🌐 Ex. 1.5 — Downloading Stage 3 ===="
 
 cd /mnt/gentoo
-if [ ! -d bin ]; then
+if [ ! -f stage3-amd64-systemd-*.tar.xz ]; then
   wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20251102T165025Z.tar.xz
-  tar xpf stage3-amd64-systemd-20251102T165025Z.tar.xz --xattrs-include='*.*' --numeric-owner
-else
-  echo "✅ Stage3 already extracted."
 fi
 
-echo "==== 📦 Ex. 1.6 — Downloading and Extracting Portage ===="
+echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
 
+tar xpf stage3-amd64-systemd-*.tar.xz --xattrs-include='*.*' --numeric-owner
+
+echo "==== 🗂️ Ex. 1.6 (suite) — Installing Portage ===="
+
+mkdir -p /mnt/gentoo/usr
 cd /mnt/gentoo/usr
 if [ ! -d /mnt/gentoo/usr/portage ]; then
   wget https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
@@ -92,18 +76,17 @@ else
   echo "✅ Portage already installed."
 fi
 
-echo "==== ⚙️ Preparing Configuration Environment ===="
+echo "==== ⚙️ Preparing chroot environment ===="
 
 mount -t proc /proc /mnt/gentoo/proc
 mount --rbind /sys /mnt/gentoo/sys
 mount --rbind /dev /mnt/gentoo/dev
 
-echo "==== 🧩 Ex. 1.7 → 1.9 — Chroot & System Configuration ===="
+echo "==== 🧩 Ex. 1.7 — Chrooting into Gentoo Environment ===="
 
 chroot /mnt/gentoo /bin/bash <<'CHROOT_CMDS'
-set -e
 source /etc/profile
-export PS1="(chroot) $PS1"
+export PS1="(chroot) \$PS1"
 
 echo "==== 🏗️ Ex. 1.8 — System Configuration ===="
 
@@ -124,18 +107,18 @@ echo "gentoo" > /etc/hostname
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 echo "Europe/Paris" > /etc/timezone
 
-# Network (DHCP via dhcpcd)
+# Network (DHCP)
 echo 'config_eth0="dhcp"' > /etc/conf.d/net
 cd /etc/init.d
 ln -s net.lo net.eth0 || true
 rc-update add net.eth0 default
+
+echo "==== 🌐 Installing DHCP client (dhcpcd) ===="
 emerge --sync || true
 emerge --ask --noreplace dhcpcd || true
-rc-update add dhcpcd default
-/etc/init.d/dhcpcd start
 
 echo "==== 📦 Ex. 1.9 — Installing htop ===="
-emerge --ask --noreplace htop || true
+emerge --ask htop || true
 
 echo "==== ✅ Base Gentoo configuration complete ===="
 CHROOT_CMDS
