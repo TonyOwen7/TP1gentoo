@@ -20,7 +20,7 @@ echo "==== 📥 Clonage du dépôt ===="
 git clone "$REPO_URL"
 
 echo "==== ⚙️ Préparation du script ===="
-chmod +x "./$DIR/script"
+chmod +x "./$DIR/script.sh"
 
 echo "==== 🚀 Exécution du script ===="
-"./$DIR/script"
+"./$DIR/script.sh"
