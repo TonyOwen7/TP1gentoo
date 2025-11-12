@@ -1,15 +1,10 @@
 #!/bin/bash
 # ========================================================
-# Gentoo Installation Script — TP1 (Ex. 1.1 → 1.9) + suite
+# Gentoo Installation Script — TP1 (Ex. 1.1 → 1.9)
 # Disk: /dev/sda
 # ========================================================
 
-set -euo pipefail
-
-BOOT_SIZE=100M
-SWAP_SIZE=256M
-ROOT_SIZE=6G
-HOME_SIZE=6G
+set -e
 
 echo "==== 🧩 Ex. 1.2 — Partitioning the Disk (/dev/sda) ===="
 
@@ -19,17 +14,18 @@ else
   echo "Creating new partition table and partitions..."
   (
     echo o          # new DOS partition table
-    echo n; echo p; echo 1; echo ""; echo +$BOOT_SIZE    # /boot
-    echo n; echo p; echo 2; echo ""; echo +$SWAP_SIZE    # swap
-    echo n; echo p; echo 3; echo ""; echo +$ROOT_SIZE    # /
-    echo n; echo p; echo 4; echo ""; echo +$HOME_SIZE    # /home
-    echo t; echo 2; echo 82                              # set partition 2 type to swap
+    echo n; echo p; echo 1; echo ""; echo +100M    # /boot
+    echo n; echo p; echo 2; echo ""; echo +256M    # swap
+    echo n; echo p; echo 3; echo ""; echo +6G      # /
+    echo n; echo p; echo 4; echo ""; echo +6G      # /home
+    echo t; echo 2; echo 82                        # set partition 2 type to swap
     echo w
   ) | fdisk /dev/sda
 fi
 
 echo "==== 💾 Ex. 1.3 — Formatting Partitions ===="
 
+# On reformate toujours (simple, sûr)
 mkfs.ext2 -L boot /dev/sda1
 mkswap -L swap /dev/sda2
 mkfs.ext4 -L root /dev/sda3
@@ -39,36 +35,35 @@ echo "==== 📁 Ex. 1.4 — Mounting Partitions and Enabling Swap ===="
 
 mkdir -p /mnt/gentoo
 
-# Root
-if mountpoint -q /mnt/gentoo; then
+# Mount / only if not already mounted
+if mount | grep -q "/mnt/gentoo "; then
   echo "✅ /mnt/gentoo already mounted."
 else
   mount /dev/sda3 /mnt/gentoo
 fi
 
-# Boot
+# Mount /boot
 mkdir -p /mnt/gentoo/boot
-if mountpoint -q /mnt/gentoo/boot; then
+if mount | grep -q "/mnt/gentoo/boot "; then
   echo "✅ /mnt/gentoo/boot already mounted."
 else
   mount /dev/sda1 /mnt/gentoo/boot
 fi
 
-# Home
+# Mount /home
 mkdir -p /mnt/gentoo/home
-if mountpoint -q /mnt/gentoo/home; then
+if mount | grep -q "/mnt/gentoo/home "; then
   echo "✅ /mnt/gentoo/home already mounted."
 else
   mount /dev/sda4 /mnt/gentoo/home
 fi
 
-# Swap
-if swapon --show | grep -q "/dev/sda2"; then
-  echo "✅ Swap already enabled."
+# Enable swap if not active
+if swapon --show | grep -q sda2; then
+  echo "✅ Swap already active."
 else
   swapon /dev/sda2
 fi
-
 
 echo "==== 🗂️ Generating /mnt/gentoo/etc/fstab ===="
 
@@ -86,28 +81,43 @@ cat /mnt/gentoo/etc/fstab
 echo "==== 🌐 Ex. 1.5 — Downloading Stage 3 ===="
 
 cd /mnt/gentoo
-STAGE3_URL="https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz"
-wget -nc "$STAGE3_URL"
+if ls stage3-amd64-systemd-*.tar.xz >/dev/null 2>&1; then
+  echo "✅ Stage3 archive already exists."
+else
+  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz
+fi
 
 echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
 
-tar xpf stage3-amd64-systemd-*.tar.xz --xattrs-include='*.*' --numeric-owner
+if [ -d /mnt/gentoo/bin ]; then
+  echo "✅ Stage3 already extracted."
+else
+  tar xpf stage3-amd64-systemd-*.tar.xz --xattrs-include='*.*' --numeric-owner
+fi
 
-echo "==== 🗂️ Installing Portage ===="
+echo "==== 📦 Ex. 1.6 (suite) — Installing Portage ===="
 
+mkdir -p /mnt/gentoo/usr
 cd /mnt/gentoo/usr
 if [ ! -d /mnt/gentoo/usr/portage ]; then
   wget https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
   tar xpf portage-latest.tar.xz -C /mnt/gentoo/usr
 else
-  echo "✅ Portage already installed."
+  echo "✅ Portage already present."
 fi
 
 echo "==== ⚙️ Preparing chroot environment ===="
 
-mount -t proc /proc /mnt/gentoo/proc
-mount --rbind /sys /mnt/gentoo/sys
-mount --rbind /dev /mnt/gentoo/dev
+# Mount proc/sys/dev only if not yet mounted
+if ! mount | grep -q "/mnt/gentoo/proc "; then
+  mount -t proc /proc /mnt/gentoo/proc
+fi
+if ! mount | grep -q "/mnt/gentoo/sys "; then
+  mount --rbind /sys /mnt/gentoo/sys
+fi
+if ! mount | grep -q "/mnt/gentoo/dev "; then
+  mount --rbind /dev /mnt/gentoo/dev
+fi
 
 echo "==== 🧩 Ex. 1.7 — Chrooting into Gentoo Environment ===="
 
@@ -137,7 +147,7 @@ echo "Europe/Paris" > /etc/timezone
 # Network (DHCP)
 echo 'config_eth0="dhcp"' > /etc/conf.d/net
 cd /etc/init.d
-ln -s net.lo net.eth0 || true
+ln -sf net.lo net.eth0
 rc-update add net.eth0 default
 
 echo "==== 🌐 Installing DHCP client (dhcpcd) ===="
@@ -145,23 +155,7 @@ emerge --sync || true
 emerge --noreplace dhcpcd || true
 
 echo "==== 📦 Ex. 1.9 — Installing htop ===="
-emerge htop || true
+emerge --noreplace htop || true
 
-echo "==== 🧩 Ex. 2.0 — Kernel & Bootloader ===="
-
-# Kernel sources
-emerge gentoo-sources
-
-# Kernel configuration (interactive)
-cd /usr/src/linux
-make menuconfig
-make && make modules_install
-make install
-
-# Install GRUB
-emerge grub
-grub-install /dev/sda
-grub-mkconfig -o /boot/grub/grub.cfg
-
-echo "==== ✅ Base Gentoo system ready for reboot ===="
+echo "==== ✅ Base Gentoo configuration complete ===="
 CHROOT_CMDS
