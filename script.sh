@@ -103,11 +103,18 @@ cat /mnt/gentoo/etc/fstab
 echo "==== 🌐 Ex. 1.5 — Downloading Stage 3 ===="
 
 cd /mnt/gentoo
-if ls stage3-amd64-systemd-*.tar.xz >/dev/null 2>&1; then
+if [ -f stage3-amd64-systemd-20251109T170053Z.tar.xz ]; then
   echo "✅ Stage3 archive already exists."
 else
-  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz
-  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-latest.tar.xz.asc
+  wget https://bouncer.gentoo.org/fetch/root/all/releases/amd64/autobuilds/current-stage3-amd64-systemd/stage3-amd64-systemd-20251109T170053Z.tar.xz
+fi
+
+echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
+
+if [ -d /mnt/gentoo/bin ]; then
+  echo "✅ Stage3 already extracted."
+else
+  tar xpf stage3-amd64-systemd-20251109T170053Z.tar.xz --xattrs-include='*.*' --numeric-owner
 fi
 
 echo "==== 📦 Ex. 1.6 — Extracting Stage 3 ===="
