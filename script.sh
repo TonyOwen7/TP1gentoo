@@ -66,6 +66,13 @@ LABEL=home   /home   ext4    defaults,noatime 0 2
 LABEL=swap   none    swap    sw               0 0
 EOF
 
+echo "==== 🕒 Synchronisation de l'horloge ===="
+
+ntpd -q -g || ntpdate -b pool.ntp.org || {
+  echo "❌ Échec de la synchronisation NTP. Vérifie ta connexion."
+  exit 1
+}
+
 echo "==== 🌐 Téléchargement du stage3 + signature ===="
 
 cd /mnt/gentoo
@@ -116,7 +123,13 @@ location = /var/db/repos/gentoo
 sync-type = rsync
 sync-uri = rsync://rsync.gentoo.org/gentoo-portage
 auto-sync = yes
+sync-rsync-verify-jobs = 1
+sync-rsync-verify-metamanifest = yes
+sync-rsync-extra-opts = --exclude=/metadata/timestamp.chk
 EOF
+
+echo "==== 🔑 Réimportation manuelle de la clé Gentoo ===="
+gpg --import /usr/share/openpgp-keys/gentoo-release.asc || true
 
 echo "==== 🔄 Synchronisation du dépôt ===="
 emerge --sync || emerge-webrsync
