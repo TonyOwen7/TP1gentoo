@@ -129,8 +129,31 @@ cd /etc/init.d
 ln -sf net.lo net.eth0
 rc-update add net.eth0 default
 
+echo "==== ⚙️ Vérification du dépôt Gentoo ===="
+
+# Vérifier que le répertoire existe
+if [ ! -d /var/db/repos/gentoo ]; then
+  echo "📂 Création du répertoire /var/db/repos/gentoo"
+  mkdir -p /var/db/repos/gentoo
+fi
+
+# Vérifier la configuration repos.conf
+mkdir -p /etc/portage/repos.conf
+cat > /etc/portage/repos.conf/gentoo.conf <<EOF
+[gentoo]
+location = /var/db/repos/gentoo
+sync-type = rsync
+sync-uri = rsync://rsync.gentoo.org/gentoo-portage
+auto-sync = yes
+EOF
+
+echo "✅ Fichier /etc/portage/repos.conf/gentoo.conf configuré correctement."
+
+# Synchroniser le dépôt
+echo "==== 🔄 Synchronisation du dépôt Gentoo ===="
+emerge --sync || emerge-webrsync
+
 echo "==== 🌐 Installing DHCP client (dhcpcd) ===="
-emerge --sync || true
 emerge --noreplace dhcpcd || true
 
 echo "==== 📦 Ex. 1.9 — Installing htop ===="
