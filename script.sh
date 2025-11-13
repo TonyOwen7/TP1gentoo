@@ -1,6 +1,6 @@
 #!/bin/bash
 # Gentoo Installation Script — TP1 (Ex. 1.1 → 1.9)
-# Secure version with GPG verification and repo setup
+# Sécurisé, robuste, et intelligent
 
 set -euo pipefail
 
@@ -23,9 +23,29 @@ fi
 echo "==== 💾 Formatage des partitions ===="
 
 mkfs.ext2 -L boot /dev/sda1 || true
-mkswap -L swap /dev/sda2 || true
 mkfs.ext4 -L root /dev/sda3 || true
 mkfs.ext4 -L home /dev/sda4 || true
+
+echo "==== 🔍 Vérification et activation du swap ===="
+
+SWAP_DEVICE=$(blkid -L swap || true)
+
+if [ -z "$SWAP_DEVICE" ]; then
+  echo "❌ Aucun périphérique avec le label 'swap' trouvé."
+  echo "🔧 Formatage de /dev/sda2 avec label 'swap'..."
+  mkswap -L swap /dev/sda2
+  SWAP_DEVICE="/dev/sda2"
+else
+  echo "✅ Périphérique swap détecté : $SWAP_DEVICE"
+fi
+
+if swapon --show | grep -q "$SWAP_DEVICE"; then
+  echo "✅ Le swap est déjà activé sur $SWAP_DEVICE."
+else
+  echo "🔧 Activation du swap sur $SWAP_DEVICE..."
+  swapon "$SWAP_DEVICE"
+  echo "✅ Swap activé avec succès."
+fi
 
 echo "==== 📁 Montage des partitions ===="
 
@@ -35,7 +55,6 @@ mkdir -p /mnt/gentoo/boot
 mount /dev/sda1 /mnt/gentoo/boot
 mkdir -p /mnt/gentoo/home
 mount /dev/sda4 /mnt/gentoo/home
-swapon /dev/sda2
 
 echo "==== 🗂️ Création de /etc/fstab ===="
 
