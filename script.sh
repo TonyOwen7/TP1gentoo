@@ -66,10 +66,9 @@ LABEL=home   /home   ext4    defaults,noatime 0 2
 LABEL=swap   none    swap    sw               0 0
 EOF
 
-echo "==== 🕒 Synchronisation de l'horloge ===="
-
-ntpd -q -g || ntpdate -b pool.ntp.org || {
-  echo "❌ Échec de la synchronisation NTP. Vérifie ta connexion."
+echo "==== 🕒 Synchronisation de l'horloge système ===="
+date -s "$(wget -qO- https://google.com | grep -i ^Date: | cut -d' ' -f2-)" || {
+  echo "❌ Impossible de régler l'heure. Vérifie ta connexion réseau."
   exit 1
 }
 
@@ -80,29 +79,24 @@ wget https://distfiles.gentoo.org/releases/amd64/autobuilds/20251109T170053Z/sta
 wget https://distfiles.gentoo.org/releases/amd64/autobuilds/20251109T170053Z/stage3-amd64-systemd-20251109T170053Z.tar.xz.asc
 
 echo "==== 🔑 Importation de la clé Gentoo ===="
-
 gpg --import /usr/share/openpgp-keys/gentoo-release.asc
 
 echo "==== 🔍 Vérification GPG de l'archive ===="
-
 gpg --verify stage3-amd64-systemd-20251109T170053Z.tar.xz.asc stage3-amd64-systemd-20251109T170053Z.tar.xz || {
   echo "❌ Signature invalide — arrêt."
   exit 1
 }
 
 echo "==== 📦 Extraction du stage3 ===="
-
 tar xpf stage3-amd64-systemd-20251109T170053Z.tar.xz --xattrs-include='*.*' --numeric-owner
 
 echo "==== 📦 Installation de Portage ===="
-
 mkdir -p /mnt/gentoo/usr
 cd /mnt/gentoo/usr
 wget https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz
 tar xpf portage-latest.tar.xz -C /mnt/gentoo/usr
 
 echo "==== ⚙️ Préparation du chroot ===="
-
 mount -t proc /proc /mnt/gentoo/proc
 mount --rbind /sys /mnt/gentoo/sys
 mount --rbind /dev /mnt/gentoo/dev
@@ -114,7 +108,6 @@ source /etc/profile
 export PS1="(chroot) \$PS1"
 
 echo "==== ⚙️ Configuration du dépôt Gentoo ===="
-
 mkdir -p /var/db/repos/gentoo
 mkdir -p /etc/portage/repos.conf
 cat > /etc/portage/repos.conf/gentoo.conf <<EOF
@@ -135,7 +128,6 @@ echo "==== 🔄 Synchronisation du dépôt ===="
 emerge --sync || emerge-webrsync
 
 echo "==== 🏗️ Configuration système ===="
-
 echo 'keymap="fr-latin1"' > /etc/conf.d/keymaps
 echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
 echo "fr_FR.UTF-8 UTF-8" >> /etc/locale.gen
