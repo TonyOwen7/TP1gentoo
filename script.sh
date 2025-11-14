@@ -252,261 +252,133 @@ cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
 log_success "Environnement chroot prêt"
 
 # ============================================================================
-# CONFIGURATION POUR AUTO-MONTAGE AU DÉMARRAGE DU LIVECD
+# VÉRIFICATION FINALE DU SYSTÈME
 # ============================================================================
-log_info "Configuration de l'auto-montage au démarrage du LiveCD"
+log_info "Vérification de l'installation"
 
-# Créer un script de démarrage automatique pour le LiveCD
-cat > /etc/local.d/00-auto-mount-gentoo.start <<'AUTOSTART'
-#!/bin/bash
-# Auto-montage du système Gentoo installé au démarrage du LiveCD
-
-MOUNT_POINT="/mnt/gentoo"
-DISK="/dev/sda"
-
-# Attendre que les disques soient prêts
-sleep 3
-
-# Vérifier que les partitions existent
-if ! lsblk "${DISK}1" >/dev/null 2>&1; then
-    exit 0  # Pas de système installé, on ne fait rien
+# Vérifier que GRUB est bien installé
+if [ -f /boot/grub/grub.cfg ]; then
+    log_success "GRUB correctement configuré"
+else
+    log_warning "Configuration GRUB non trouvée"
 fi
 
-# Activation du swap
-swapon "${DISK}2" 2>/dev/null || true
+# Vérifier que le noyau est présent
+if ls /boot/vmlinuz-* >/dev/null 2>&1; then
+    log_success "Noyau installé dans /boot"
+else
+    log_warning "Noyau non trouvé dans /boot"
+fi
 
-# Montage des partitions
-mkdir -p "${MOUNT_POINT}"
-mount "${DISK}3" "${MOUNT_POINT}" 2>/dev/null || true
-mkdir -p "${MOUNT_POINT}/boot"
-mount "${DISK}1" "${MOUNT_POINT}/boot" 2>/dev/null || true
-mkdir -p "${MOUNT_POINT}/home"
-mount "${DISK}4" "${MOUNT_POINT}/home" 2>/dev/null || true
+# Créer un fichier d'information pour l'utilisateur
+cat > /home/student/INSTALLATION-INFO.txt <<'INFOFILE'
+═══════════════════════════════════════════════════════════════════
+              INFORMATIONS D'INSTALLATION GENTOO
+═══════════════════════════════════════════════════════════════════
 
-# Préparation du chroot
-mount -t proc /proc "${MOUNT_POINT}/proc" 2>/dev/null || true
-mount --rbind /sys "${MOUNT_POINT}/sys" 2>/dev/null || true
-mount --make-rslave "${MOUNT_POINT}/sys" 2>/dev/null || true
-mount --rbind /dev "${MOUNT_POINT}/dev" 2>/dev/null || true
-mount --make-rslave "${MOUNT_POINT}/dev" 2>/dev/null || true
+✓ Installation complète terminée avec succès
 
-# Copie de resolv.conf pour le réseau
-cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
+CONFIGURATION SYSTÈME
+────────────────────────────────────────────────────────────────────
+Partitions :
+  /dev/sda1 : /boot (100M, ext2)
+  /dev/sda2 : swap (256M)
+  /dev/sda3 : / (6G, ext4)
+  /dev/sda4 : /home (6G, ext4)
 
-# Message de bienvenue
-clear
+Comptes utilisateur :
+  root     : gentoo     (⚠️  À CHANGER IMMÉDIATEMENT !)
+  student  : student    (⚠️  À CHANGER IMMÉDIATEMENT !)
+
+Bootloader : GRUB installé sur /dev/sda
+Noyau : Compilé avec genkernel
+
+PREMIER DÉMARRAGE
+────────────────────────────────────────────────────────────────────
+1. Changer les mots de passe :
+   passwd              # Pour root
+   passwd student      # Pour student
+
+2. Vérifier le réseau :
+   ip addr             # Voir les interfaces
+   ping google.com     # Tester la connexion
+
+3. Mettre à jour le système :
+   emerge --sync
+   emerge --update @world
+
+OUTILS INSTALLÉS
+────────────────────────────────────────────────────────────────────
+- htop : Moniteur de ressources
+- dhcpcd : Client DHCP
+- sudo : Élévation de privilèges
+- vim, nano : Éditeurs de texte
+
+═══════════════════════════════════════════════════════════════════
+INFOFILE
+
+chown student:users /home/student/INSTALLATION-INFO.txt
+log_success "Fichier d'information créé pour l'utilisateur"
+
+# Créer un message de bienvenue au login
+cat > /etc/motd <<'MOTD'
+
+╔═══════════════════════════════════════════════════════════════════╗
+║                    BIENVENUE SUR GENTOO LINUX                     ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+📋 Documentation : /home/student/INSTALLATION-INFO.txt
+🔧 Commandes utiles : htop, ip addr, emerge --sync
+
+⚠️  IMPORTANT : Changez immédiatement les mots de passe par défaut !
+   → passwd         (pour root)
+   → passwd student (pour student)
+
+MOTD
+
+log_success "Message de bienvenue configuré"
+
+# Créer un script d'aide rapide
+cat > /usr/local/bin/aide <<'AIDE'
+#!/bin/bash
 cat << 'EOF'
 ═══════════════════════════════════════════════════════════════════
-              SYSTÈME GENTOO AUTO-MONTÉ
+                    AIDE RAPIDE - GENTOO LINUX
 ═══════════════════════════════════════════════════════════════════
 
-✓ Le système Gentoo a été automatiquement monté sur /mnt/gentoo
-✓ Toutes les partitions sont prêtes
-✓ L'environnement chroot est configuré
+COMMANDES SYSTÈME
+────────────────────────────────────────────────────────────────────
+htop                    : Moniteur de ressources
+df -h                   : Espace disque
+free -h                 : Mémoire disponible
+ip addr                 : Configuration réseau
+systemctl status        : État des services
 
-Pour entrer dans le système Gentoo :
-  chroot-gentoo
+GESTION DES PAQUETS (Portage)
+────────────────────────────────────────────────────────────────────
+emerge --sync           : Synchroniser les paquets
+emerge --search <nom>   : Rechercher un paquet
+emerge <paquet>         : Installer un paquet
+emerge --update @world  : Mettre à jour le système
+emerge --depclean       : Nettoyer les paquets inutiles
 
-Pour voir les informations de montage :
-  df -h | grep gentoo
+SÉCURITÉ
+────────────────────────────────────────────────────────────────────
+passwd                  : Changer son mot de passe
+sudo <commande>         : Exécuter en tant que root
+chmod +x fichier        : Rendre exécutable
 
-Partitions montées :
-  /dev/sda1 → /mnt/gentoo/boot
-  /dev/sda2 → swap
-  /dev/sda3 → /mnt/gentoo (root)
-  /dev/sda4 → /mnt/gentoo/home
-
-Comptes disponibles :
-  root     : gentoo
-  student  : student
+DOCUMENTATION
+────────────────────────────────────────────────────────────────────
+/home/student/INSTALLATION-INFO.txt
+https://wiki.gentoo.org/
 
 ═══════════════════════════════════════════════════════════════════
 EOF
+AIDE
 
-AUTOSTART
-
-chmod +x /etc/local.d/00-auto-mount-gentoo.start
-
-# Activer le service local au démarrage
-rc-update add local default 2>/dev/null || true
-
-log_success "Auto-montage configuré pour le démarrage du LiveCD"
-
-# Créer un alias pratique pour entrer dans le chroot
-cat > /usr/local/bin/chroot-gentoo <<'CHROOT_ALIAS'
-#!/bin/bash
-# Raccourci pour entrer dans le chroot Gentoo
-
-MOUNT_POINT="/mnt/gentoo"
-
-if ! mountpoint -q "${MOUNT_POINT}"; then
-    echo "❌ Le système n'est pas monté. Exécutez d'abord :"
-    echo "   bash /root/remount-gentoo.sh"
-    exit 1
-fi
-
-echo "Entrée dans le système Gentoo..."
-chroot "${MOUNT_POINT}" /bin/bash -c "source /etc/profile && export PS1='(chroot) \$PS1' && exec /bin/bash"
-CHROOT_ALIAS
-
-chmod +x /usr/local/bin/chroot-gentoo
-
-log_success "Commande 'chroot-gentoo' créée"
-
-# ============================================================================
-# SAUVEGARDE DE LA CONFIGURATION POUR RÉUTILISATION
-# ============================================================================
-log_info "Sauvegarde de la configuration des montages"
-
-# Créer un script de remontage manuel (au cas où)
-cat > "${MOUNT_POINT}/usr/local/bin/remount-system" <<'REMOUNT_SCRIPT'
-#!/bin/bash
-# Script de remontage manuel (normalement automatique)
-
-set -e
-
-MOUNT_POINT="/mnt/gentoo"
-DISK="/dev/sda"
-
-echo "=== Remontage du système Gentoo installé ==="
-echo ""
-
-# Vérifier que les partitions existent
-if ! lsblk "${DISK}" | grep -q "${DISK}1"; then
-    echo "❌ Erreur: Les partitions n'existent pas sur ${DISK}"
-    exit 1
-fi
-
-echo "✓ Partitions détectées"
-
-# Activation du swap
-echo "Activation du swap..."
-swapon "${DISK}2" 2>/dev/null || echo "⚠️  Swap déjà actif"
-
-# Montage des partitions
-echo "Montage des partitions..."
-mkdir -p "${MOUNT_POINT}"
-mount "${DISK}3" "${MOUNT_POINT}" 2>/dev/null || echo "⚠️  / déjà monté"
-
-mkdir -p "${MOUNT_POINT}/boot"
-mount "${DISK}1" "${MOUNT_POINT}/boot" 2>/dev/null || echo "⚠️  /boot déjà monté"
-
-mkdir -p "${MOUNT_POINT}/home"
-mount "${DISK}4" "${MOUNT_POINT}/home" 2>/dev/null || echo "⚠️  /home déjà monté"
-
-echo "✓ Partitions montées"
-
-# Préparation du chroot
-echo "Préparation de l'environnement chroot..."
-mount -t proc /proc "${MOUNT_POINT}/proc" 2>/dev/null || true
-mount --rbind /sys "${MOUNT_POINT}/sys" 2>/dev/null || true
-mount --make-rslave "${MOUNT_POINT}/sys" 2>/dev/null || true
-mount --rbind /dev "${MOUNT_POINT}/dev" 2>/dev/null || true
-mount --make-rslave "${MOUNT_POINT}/dev" 2>/dev/null || true
-
-# Copie de resolv.conf pour le réseau
-cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
-
-echo "✓ Environnement chroot prêt"
-echo ""
-echo "Pour entrer dans le système installé :"
-echo "  chroot-gentoo"
-echo ""
-
-REMOUNT_SCRIPT
-
-chmod +x "${MOUNT_POINT}/usr/local/bin/remount-system"
-
-# Créer aussi une copie dans le LiveCD pour accès facile
-cp "${MOUNT_POINT}/usr/local/bin/remount-system" /root/remount-gentoo.sh 2>/dev/null || true
-chmod +x /root/remount-gentoo.sh 2>/dev/null || true
-
-log_success "Script de remontage créé (backup manuel)"
-
-# ============================================================================
-# CRÉATION D'UN README POUR LE LIVECD
-# ============================================================================
-log_info "Création d'instructions pour le LiveCD"
-
-cat > /root/README-GENTOO.txt <<'README'
-═══════════════════════════════════════════════════════════════════
-              SYSTÈME GENTOO AUTO-MONTÉ
-═══════════════════════════════════════════════════════════════════
-
-🎉 BONNE NOUVELLE : Tout est déjà configuré !
-
-Le système Gentoo est AUTOMATIQUEMENT monté au démarrage du LiveCD.
-Vous n'avez RIEN à faire !
-
-ACCÈS RAPIDE AU SYSTÈME
-────────────────────────────────────────────────────────────────────
-Pour entrer dans votre Gentoo installé, tapez simplement :
-
-  chroot-gentoo
-
-C'est tout ! Le système est déjà monté et prêt.
-
-INFORMATIONS SYSTÈME
-────────────────────────────────────────────────────────────────────
-Partitions montées automatiquement :
-  /dev/sda1 : /mnt/gentoo/boot (100M, ext2)
-  /dev/sda2 : swap (256M)
-  /dev/sda3 : /mnt/gentoo (6G, ext4)
-  /dev/sda4 : /mnt/gentoo/home (6G, ext4)
-
-Comptes utilisateur :
-  root     : gentoo
-  student  : student
-
-⚠️  N'oubliez pas de changer ces mots de passe !
-
-COMMANDES UTILES
-────────────────────────────────────────────────────────────────────
-  chroot-gentoo              : Entrer dans le système Gentoo
-  df -h | grep gentoo        : Voir les montages
-  /root/remount-gentoo.sh    : Remonter manuellement (si besoin)
-
-POUR DÉMARRER LE SYSTÈME INSTALLÉ (sans LiveCD)
-────────────────────────────────────────────────────────────────────
-  1. Sortir du chroot : exit
-  2. Démonter : umount -R /mnt/gentoo
-  3. Redémarrer : reboot
-  4. Retirer le LiveCD de la machine virtuelle
-  5. Le système démarrera directement sur Gentoo avec GRUB
-
-SI VOUS VOULEZ DÉSACTIVER L'AUTO-MONTAGE
-────────────────────────────────────────────────────────────────────
-  rc-update del local default
-
-═══════════════════════════════════════════════════════════════════
-README
-
-log_success "README créé : /root/README-GENTOO.txt"
-
-# Modifier le .bashrc du LiveCD pour afficher un message
-cat >> /root/.bashrc <<'BASHRC_MSG'
-
-# Message d'accueil pour Gentoo auto-monté
-if [ -f /root/README-GENTOO.txt ] && mountpoint -q /mnt/gentoo 2>/dev/null; then
-    echo ""
-    echo "═══════════════════════════════════════════════════════════════════"
-    echo "  ✓ Système Gentoo AUTO-MONTÉ sur /mnt/gentoo"
-    echo "  ✓ Tapez 'chroot-gentoo' pour entrer dans le système"
-    echo "  ✓ Tapez 'cat /root/README-GENTOO.txt' pour plus d'infos"
-    echo "═══════════════════════════════════════════════════════════════════"
-    echo ""
-fi
-BASHRC_MSG
-
-log_success "Message d'accueil configuré"
-
-echo ""
-log_success "🎉 AUTO-MONTAGE CONFIGURÉ !"
-echo ""
-log_info "Lors du prochain démarrage sur le LiveCD :"
-echo "  → Le système sera automatiquement monté"
-echo "  → Tapez simplement 'chroot-gentoo' pour y accéder"
-echo "  → Aucune manipulation manuelle nécessaire !"
+chmod +x /usr/local/bin/aide
+log_success "Commande 'aide' créée"
 
 chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_CMDS'
 #!/bin/bash
@@ -710,20 +582,59 @@ echo "  ✓ Noyau Linux compilé et installé"
 echo "  ✓ GRUB installé et configuré"
 echo "  ✓ Utilisateurs créés"
 echo "  ✓ Outils installés: htop, dhcpcd, sudo"
+echo "  ✓ Documentation et aide intégrées"
 echo ""
 echo "👤 Comptes créés :"
 echo "  - root (mot de passe: gentoo)"
 echo "  - student (mot de passe: student)"
 echo ""
+echo "📚 Documentation disponible :"
+echo "  - /home/student/INSTALLATION-INFO.txt"
+echo "  - Message de bienvenue au login (/etc/motd)"
+echo "  - Commande 'aide' pour l'aide rapide"
+echo ""
 echo "🔄 Pour démarrer le système :"
 echo "  1. Sortir du chroot: exit"
 echo "  2. Démonter les partitions: umount -R ${MOUNT_POINT}"
 echo "  3. Redémarrer: reboot"
-echo "  4. Retirer le LiveCD"
+echo "  4. ⚠️  IMPORTANT: Retirer le LiveCD de la VM dans VirtualBox"
+echo "     Configuration > Stockage > Retirer le disque ISO"
 echo ""
 echo "⚠️  N'OUBLIEZ PAS après le premier démarrage :"
 echo "  - Changer le mot de passe root: passwd"
 echo "  - Changer le mot de passe student: passwd student"
+echo ""
+echo "💾 POUR CRÉER L'OVA :"
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+echo "  1. Suivez les étapes ci-dessus pour démarrer le système"
+echo "  2. Vérifiez que tout fonctionne (réseau, connexion, etc.)"
+echo "  3. Connectez-vous et testez : htop, ip addr, ping google.com"
+echo "  4. Éteindre proprement : poweroff"
+echo "  5. Dans VirtualBox : Fichier > Exporter un appareil virtuel"
+echo "  6. Sélectionner votre VM Gentoo"
+echo "  7. Format : OVA"
+echo "  8. Exporter"
+echo ""
+echo "📦 L'OVA CONTIENDRA :"
+echo "  ✓ Système Gentoo complet et fonctionnel"
+echo "  ✓ Boot automatique sur GRUB (sans LiveCD)"
+echo "  ✓ Réseau DHCP configuré"
+echo "  ✓ Tous les outils installés"
+echo "  ✓ Documentation intégrée"
+echo ""
+echo "👥 UTILISATION DE L'OVA (pour les autres utilisateurs) :"
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+echo "  1. Importer le fichier .ova dans VirtualBox"
+echo "  2. Démarrer la VM"
+echo "  3. Le système démarre automatiquement sur Gentoo"
+echo "  4. Se connecter avec :"
+echo "     - root / gentoo"
+echo "     - student / student"
+echo "  5. Lire /home/student/INSTALLATION-INFO.txt"
+echo "  6. Taper 'aide' pour l'aide rapide"
+echo "  7. Changer les mots de passe immédiatement !"
 echo ""
 
 CHROOT_CMDS
@@ -736,7 +647,7 @@ echo "================================================================"
 log_success "Installation automatisée terminée avec succès !"
 echo "================================================================"
 echo ""
-echo "Le système Gentoo est maintenant complètement installé et prêt à démarrer."
+echo "Le système Gentoo est maintenant complètement installé et prêt."
 echo ""
 echo "🚀 Prochaines étapes :"
 echo ""
@@ -750,24 +661,24 @@ echo ""
 echo "3. Redémarrer la machine :"
 echo "   reboot"
 echo ""
-echo "📌 IMPORTANT - Configuration pour export OVA :"
+echo "4. ⚠️  CRITIQUE : Dans VirtualBox, RETIREZ le LiveCD :"
+echo "   Configuration > Stockage > Clic droit sur le CD > Retirer le disque"
 echo ""
-echo "   ✓ L'auto-montage est configuré !"
-echo "   ✓ Au prochain démarrage sur LiveCD, le système sera"
-echo "     automatiquement monté sur /mnt/gentoo"
+echo "5. Après le redémarrage :"
+echo "   - Le système démarre sur GRUB automatiquement"
+echo "   - Connectez-vous avec root/gentoo ou student/student"
+echo "   - Lisez /home/student/INSTALLATION-INFO.txt"
+echo "   - Tapez 'aide' pour l'aide rapide"
+echo "   - Changez les mots de passe immédiatement !"
 echo ""
-echo "   Pour accéder au système après import OVA :"
-echo "   → Démarrez la VM avec le LiveCD"
-echo "   → Attendez le message d'auto-montage"
-echo "   → Tapez simplement : chroot-gentoo"
+echo "6. Pour créer l'OVA (après vérification que tout fonctionne) :"
+echo "   - Éteindre la VM : poweroff"
+echo "   - VirtualBox : Fichier > Exporter un appareil virtuel"
+echo "   - Sélectionner la VM > Format OVA > Exporter"
 echo ""
-echo "   Aucune manipulation manuelle nécessaire ! 🎉"
+log_success "Bonne utilisation de votre système Gentoo ! 🐧"
 echo ""
-echo "4. Pour démarrer normalement (sans LiveCD) :"
-echo "   - Utilisateur: root ou student"
-echo "   - Mot de passe: gentoo ou student"
-echo ""
-echo "5. Après le premier démarrage, changez les mots de passe !"
-echo ""
-log_success "Bonne utilisation de votre nouveau système Gentoo ! 🐧"
+echo "📖 Ressources utiles :"
+echo "   - Documentation Gentoo : https://wiki.gentoo.org/"
+echo "   - Handbook AMD64 : https://wiki.gentoo.org/wiki/Handbook:AMD64"
 echo ""
