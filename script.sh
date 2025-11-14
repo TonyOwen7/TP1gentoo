@@ -70,21 +70,29 @@ log_info "EXERCICE 1.3 - Formatage des partitions avec labels"
 if ! blkid -L boot >/dev/null 2>&1; then
     mkfs.ext2 -F -L boot "${DISK}1" >/dev/null 2>&1
     log_success "Partition /boot formatée (ext2) avec label 'boot'"
+else
+    log_warning "Partition /boot déjà formatée"
 fi
 
 if ! blkid -L swap >/dev/null 2>&1; then
     mkswap -L swap "${DISK}2" >/dev/null 2>&1
     log_success "Partition swap formatée avec label 'swap'"
+else
+    log_warning "Partition swap déjà formatée"
 fi
 
 if ! blkid -L root >/dev/null 2>&1; then
     mkfs.ext4 -F -L root "${DISK}3" >/dev/null 2>&1
     log_success "Partition / formatée (ext4) avec label 'root'"
+else
+    log_warning "Partition / déjà formatée"
 fi
 
 if ! blkid -L home >/dev/null 2>&1; then
     mkfs.ext4 -F -L home "${DISK}4" >/dev/null 2>&1
     log_success "Partition /home formatée (ext4) avec label 'home'"
+else
+    log_warning "Partition /home déjà formatée"
 fi
 
 # ============================================================================
@@ -97,23 +105,31 @@ mkdir -p "${MOUNT_POINT}"
 if ! mountpoint -q "${MOUNT_POINT}"; then
     mount "${DISK}3" "${MOUNT_POINT}"
     log_success "Partition / montée sur ${MOUNT_POINT}"
+else
+    log_warning "/ déjà monté"
 fi
 
 mkdir -p "${MOUNT_POINT}/boot"
 if ! mountpoint -q "${MOUNT_POINT}/boot"; then
     mount "${DISK}1" "${MOUNT_POINT}/boot"
     log_success "Partition /boot montée"
+else
+    log_warning "/boot déjà monté"
 fi
 
 mkdir -p "${MOUNT_POINT}/home"
 if ! mountpoint -q "${MOUNT_POINT}/home"; then
     mount "${DISK}4" "${MOUNT_POINT}/home"
     log_success "Partition /home montée"
+else
+    log_warning "/home déjà monté"
 fi
 
 if ! swapon --show | grep -q "${DISK}2"; then
     swapon "${DISK}2"
     log_success "Swap activé sur ${DISK}2"
+else
+    log_success "Swap déjà actif"
 fi
 
 # ============================================================================
@@ -133,12 +149,16 @@ if [ ! -f "${STAGE3_FILENAME}" ]; then
     log_info "Téléchargement du stage3: ${STAGE3_FILENAME}"
     wget --quiet --show-progress "${STAGE3_BASE_URL}"
     log_success "Stage3 téléchargé"
+else
+    log_warning "Stage3 déjà présent: ${STAGE3_FILENAME}"
 fi
 
 if [ ! -f "portage-latest.tar.xz" ]; then
     log_info "Téléchargement du snapshot Portage"
     wget --quiet --show-progress "${PORTAGE_URL}"
     log_success "Portage téléchargé"
+else
+    log_warning "Portage déjà présent"
 fi
 
 # ============================================================================
@@ -376,129 +396,45 @@ umount -l "${MOUNT_POINT}/dev"{/shm,/pts,} 2>/dev/null || true
 umount -R "${MOUNT_POINT}" 2>/dev/null || true
 swapoff "${DISK}2" 2>/dev/null || true
 
-# ============================================================================
-# CRÉATION DE LA VM ET EXPORT OVA
-# ============================================================================
-log_info "Création de la VM VirtualBox et export OVA"
-
-# Créer la VM
-if ! VBoxManage list vms | grep -q "${VM_NAME}"; then
-    VBoxManage createvm --name "${VM_NAME}" --ostype "Gentoo_64" --register
-    VBoxManage modifyvm "${VM_NAME}" --memory 2048 --cpus 2
-    VBoxManage modifyvm "${VM_NAME}" --nic1 nat
-    VBoxManage modifyvm "${VM_NAME}" --graphicscontroller vmsvga
-    
-    # Attacher le disque dur
-    VBoxManage storagectl "${VM_NAME}" --name "SATA Controller" --add sata --controller IntelAhci
-    VBoxManage storageattach "${VM_NAME}" --storagectl "SATA Controller" --port 0 --device 0 --type hdd --medium "${DISK}"
-    
-    log_success "VM ${VM_NAME} créée"
-fi
-
-# Exporter en OVA
-log_info "Export de la VM en OVA..."
-VBoxManage export "${VM_NAME}" --output "${OVA_FILE}" --ovf20
-
-if [ -f "${OVA_FILE}" ]; then
-    log_success "✅ Export OVA réussi: ${OVA_FILE}"
-    echo ""
-    echo "📦 Fichier OVA créé: $(pwd)/${OVA_FILE}"
-    echo "   Taille: $(du -h "${OVA_FILE}" | cut -f1)"
-else
-    log_error "❌ Échec de l'export OVA"
-    exit 1
-fi
+log_success "✅ Installation Gentoo terminée avec succès !"
 
 # ============================================================================
-# CRÉATION DU GUIDE D'IMPORTATION
-# ============================================================================
-cat > "IMPORT_README.txt" <<'EOF'
-🎯 GENTOO TP1 - GUIDE D'IMPORTATION
-====================================
-
-📦 FICHIER OVA : Gentoo-TP1-ISTY.ova
-
-🚀 IMPORTATION RAPIDE :
-
-1. Ouvrir VirtualBox
-2. Fichier → Importer un service virtualisé  
-3. Sélectionner le fichier .ova
-4. Lancer la VM importée
-
-🔧 INFORMATIONS DE CONNEXION :
-
-- Utilisateur standard : etudiant / etudiant
-- Utilisateur root : root / gentoo
-- Sudo configuré pour l'utilisateur 'etudiant'
-
-🐧 ENVIRONNEMENT PRÉCONFIGURÉ :
-
-✓ Partitions montées : /boot, /, /home, swap
-✓ Locales françaises (fr_FR.UTF-8)
-✓ Clavier français (fr-latin1)  
-✓ Fuseau horaire Europe/Paris
-✓ Réseau DHCP configuré
-✓ Noyau Gentoo compilé
-✓ Bootloader GRUB installé
-✓ Htop installé pour le monitoring
-✓ Sudo configuré
-
-🔍 VÉRIFICATION :
-
-# Vérifier les partitions montées
-$ mount | grep -E "(boot|home)"
-
-# Vérifier la locale
-$ locale
-
-# Vérifier le réseau
-$ ip addr show eth0
-
-# Tester htop
-$ htop
-
-⚠️  RECOMMANDATIONS :
-
-- Changez les mots de passe après le premier démarrage
-- Les clés SSH seront régénérées automatiquement
-- Machine-id unique créée au premier boot
-
-📚 POUR LE TP :
-
-Toutes les étapes des exercices 1.1 à 1.9 sont complétées
-et l'environnement est entièrement préservé dans l'OVA.
-
-Bon TP ! 🐧
-EOF
-
-log_success "Guide d'importation créé: IMPORT_README.txt"
-
-# ============================================================================
-# RAPPORT FINAL
+# INSTRUCTIONS POUR L'EXPORT MANUEL
 # ============================================================================
 echo ""
 echo "================================================================"
-log_success "🎉 TP1 COMPLÈTEMENT TERMINÉ AVEC EXPORT OVA !"
+log_success "🎉 TP1 COMPLÈTEMENT TERMINÉ !"
 echo "================================================================"
 echo ""
-echo "📋 Récapitulatif :"
-echo "  ✅ Exercices 1.1 à 1.9 complétés"
-echo "  ✅ Partitions créées et montées"
-echo "  ✅ Système Gentoo complètement installé"
-echo "  ✅ Noyau compilé et GRUB configuré"
-echo "  ✅ Environnement français configuré"
-echo "  ✅ Utilisateurs créés"
-echo "  ✅ Htop installé"
-echo "  ✅ VM exportée en OVA"
+echo "📋 Récapitulatif des exercices complétés :"
+echo "  ✅ 1.2 - Partitionnement du disque /dev/vda"
+echo "  ✅ 1.3 - Formatage avec labels" 
+echo "  ✅ 1.4 - Montage partitions et activation swap"
+echo "  ✅ 1.5 - Téléchargement stage3 et Portage"
+echo "  ✅ 1.6 - Extraction des archives"
+echo "  ✅ 1.7 - Environnement chroot"
+echo "  ✅ 1.8 - Configuration environnement"
+echo "  ✅ 1.9 - Installation htop et système complet"
 echo ""
-echo "📦 FICHIERS CRÉÉS :"
-echo "  - ${OVA_FILE} (VM exportée)"
-echo "  - IMPORT_README.txt (guide d'importation)"
+echo "🐧 SYSTÈME COMPLET INSTALLÉ :"
+echo "  - Noyau compilé avec genkernel"
+echo "  - GRUB installé sur /dev/vda"
+echo "  - Utilisateurs : root/gentoo et etudiant/etudiant"
+echo "  - Sudo configuré"
+echo "  - Environnement français"
+echo "  - Htop installé"
 echo ""
-echo "🚀 POUR L'IMPORTATION :"
-echo "   VirtualBox → Fichier → Importer un service virtualisé"
-echo "   Sélectionner : ${OVA_FILE}"
+echo "🚀 POUR EXPORTER EN OVA :"
+echo "1. Redémarrer sur le disque dur (retirer le LiveCD)"
+echo "2. Démarrer la VM Gentoo"
+echo "3. Dans la VM, installer VirtualBox Guest Additions si besoin"
+echo "4. Depuis l'hôte, exporter :"
+echo "   VBoxManage export \"${VM_NAME}\" --output \"${OVA_FILE}\" --ovf20"
 echo ""
-echo "🔗 La personne qui importe l'OVA verra EXACTEMENT le même"
-echo "   environnement que vous avez configuré !"
+echo "📦 La personne qui importe l'OVA verra EXACTEMENT :"
+echo "   - Toutes les partitions montées"
+echo "   - La configuration française"
+echo "   - Les utilisateurs créés"
+echo "   - Htop installé et fonctionnel"
+echo "   - Le système complet avec noyau compilé"
 echo ""
