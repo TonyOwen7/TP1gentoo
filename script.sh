@@ -40,7 +40,7 @@ PART_COUNT=$(lsblk -rn "$DISK" | grep -c "^${DISK}[0-9]" || echo 0)
   sleep 3
   partprobe "$DISK" || true
   log_success "Repartitionnement terminé : /boot 100M | swap 256M | / 6G | /home 6G"
-fi
+
 
 # ============================================================================
 # Exercice 1.3 - Formatage avec labels (idempotent)
