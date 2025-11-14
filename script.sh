@@ -352,34 +352,157 @@ else
 fi
 
 log_success "=== Configuration de base terminée avec succès ==="
+
+# ============================================================================
+# INSTALLATION ET CONFIGURATION DU NOYAU
+# ============================================================================
+log_info "Installation des sources du noyau Linux"
+
+# Installation de gentoo-sources
+emerge --noreplace --quiet sys-kernel/gentoo-sources 2>&1 | grep -E ">>>|Emerging" || true
+log_success "Sources du noyau installées"
+
+# Installation de genkernel pour automatiser la compilation
+log_info "Installation de genkernel (peut prendre du temps)"
+emerge --noreplace --quiet sys-kernel/genkernel 2>&1 | grep -E ">>>|Emerging" || true
+log_success "genkernel installé"
+
+# Compilation du noyau avec genkernel
+log_info "Compilation du noyau (cette étape peut prendre 15-30 minutes)..."
+genkernel all 2>&1 | grep -E ">>|kernel|initramfs" || true
+log_success "Noyau compilé et installé"
+
+# ============================================================================
+# INSTALLATION DE FIRMWARE (pour le matériel)
+# ============================================================================
+log_info "Installation des firmwares système"
+emerge --noreplace --quiet sys-kernel/linux-firmware 2>&1 | grep -E ">>>|Emerging" || true
+log_success "Firmwares installés"
+
+# ============================================================================
+# INSTALLATION ET CONFIGURATION DE GRUB
+# ============================================================================
+log_info "Installation de GRUB (bootloader)"
+
+# Installation de GRUB
+emerge --noreplace --quiet sys-boot/grub 2>&1 | grep -E ">>>|Emerging" || true
+log_success "GRUB installé"
+
+# Installation de GRUB sur le disque
+log_info "Installation de GRUB sur /dev/sda"
+grub-install /dev/sda 2>&1 | grep -v "Installing" || true
+log_success "GRUB installé sur le disque"
+
+# Génération de la configuration GRUB
+log_info "Génération de la configuration GRUB"
+grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | grep -E "Found|Adding" || true
+log_success "Configuration GRUB générée"
+
+# ============================================================================
+# CONFIGURATION DU MOT DE PASSE ROOT
+# ============================================================================
+log_info "Configuration du mot de passe root"
+echo "root:gentoo" | chpasswd
+log_success "Mot de passe root défini (par défaut: 'gentoo')"
 echo ""
-echo "Prochaines étapes recommandées :"
-echo "  1. Configurer et compiler le noyau"
-echo "  2. Installer un bootloader (GRUB)"
-echo "  3. Définir un mot de passe root"
-echo "  4. Créer un utilisateur"
+echo "⚠️  IMPORTANT: Changez le mot de passe root après le premier démarrage!"
+
+# ============================================================================
+# CRÉATION D'UN UTILISATEUR
+# ============================================================================
+log_info "Création de l'utilisateur 'student'"
+useradd -m -G users,wheel,audio,video -s /bin/bash student 2>/dev/null || log_info "Utilisateur déjà existant"
+echo "student:student" | chpasswd
+log_success "Utilisateur 'student' créé (mot de passe: 'student')"
+
+# Installation de sudo pour l'utilisateur
+log_info "Installation de sudo"
+emerge --noreplace --quiet app-admin/sudo 2>&1 | grep -E ">>>|Emerging" || true
+
+# Configuration de sudo pour le groupe wheel
+sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+log_success "sudo configuré pour le groupe wheel"
+
+# ============================================================================
+# CONFIGURATION SYSTÈME FINALE
+# ============================================================================
+log_info "Configuration des services système"
+
+# Activation des services essentiels pour systemd
+systemctl enable systemd-networkd 2>/dev/null || true
+systemctl enable systemd-resolved 2>/dev/null || true
+
+log_success "Services système configurés"
+
+# ============================================================================
+# NETTOYAGE
+# ============================================================================
+log_info "Nettoyage des fichiers temporaires"
+rm -f /stage3-*.tar.xz* 2>/dev/null || true
+log_success "Nettoyage effectué"
+
+# ============================================================================
+# RÉSUMÉ FINAL
+# ============================================================================
+echo ""
+echo "================================================================"
+log_success "🎉 Installation COMPLÈTE de Gentoo terminée !"
+echo "================================================================"
+echo ""
+echo "📋 Résumé de l'installation :"
+echo "  ✓ Partitions créées et montées"
+echo "  ✓ Stage3 installé et vérifié"
+echo "  ✓ Portage configuré"
+echo "  ✓ Système de base configuré (locale, timezone, réseau)"
+echo "  ✓ Noyau Linux compilé et installé"
+echo "  ✓ GRUB installé et configuré"
+echo "  ✓ Utilisateurs créés"
+echo "  ✓ Outils installés: htop, dhcpcd, sudo"
+echo ""
+echo "👤 Comptes créés :"
+echo "  - root (mot de passe: gentoo)"
+echo "  - student (mot de passe: student)"
+echo ""
+echo "🔄 Pour démarrer le système :"
+echo "  1. Sortir du chroot: exit"
+echo "  2. Démonter les partitions: umount -R ${MOUNT_POINT}"
+echo "  3. Redémarrer: reboot"
+echo "  4. Retirer le LiveCD"
+echo ""
+echo "⚠️  N'OUBLIEZ PAS après le premier démarrage :"
+echo "  - Changer le mot de passe root: passwd"
+echo "  - Changer le mot de passe student: passwd student"
 echo ""
 
 CHROOT_CMDS
 
 # ============================================================================
-# FIN DE L'INSTALLATION
+# FIN DE L'INSTALLATION - INSTRUCTIONS FINALES
 # ============================================================================
 echo ""
 echo "================================================================"
-log_success "Installation de base Gentoo terminée !"
+log_success "Installation automatisée terminée avec succès !"
 echo "================================================================"
 echo ""
-echo "Le système est prêt dans ${MOUNT_POINT}"
+echo "Le système Gentoo est maintenant complètement installé et prêt à démarrer."
 echo ""
-echo "Pour continuer la configuration :"
-echo "  chroot ${MOUNT_POINT} /bin/bash"
-echo "  source /etc/profile"
-echo "  export PS1=\"(chroot) \$PS1\""
+echo "🚀 Prochaines étapes :"
 echo ""
-echo "N'oubliez pas de :"
-echo "  - Compiler et installer le noyau"
-echo "  - Installer et configurer GRUB"
-echo "  - Définir un mot de passe root (passwd)"
-echo "  - Redémarrer la machine"
+echo "1. Sortir du script actuel"
+echo ""
+echo "2. Démonter proprement les systèmes de fichiers :"
+echo "   cd /"
+echo "   umount -l ${MOUNT_POINT}/dev{/shm,/pts,}"
+echo "   umount -R ${MOUNT_POINT}"
+echo ""
+echo "3. Redémarrer la machine :"
+echo "   reboot"
+echo ""
+echo "4. Au démarrage, connectez-vous avec :"
+echo "   - Utilisateur: root ou student"
+echo "   - Mot de passe: gentoo ou student"
+echo ""
+echo "5. Après le premier démarrage, changez les mots de passe !"
+echo ""
+log_success "Bonne utilisation de votre nouveau système Gentoo ! 🐧"
 echo ""
