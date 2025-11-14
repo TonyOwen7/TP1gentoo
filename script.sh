@@ -22,9 +22,7 @@ log_info "Exercice 1.2 - Vérification du nombre de partitions sur $DISK"
 
 PART_COUNT=$(lsblk -rn "$DISK" | grep -c "^${DISK}[0-9]" || echo 0)
 
-if [ "$PART_COUNT" -ge 4 ]; then
-  log_warning "4 partitions ou plus déjà présentes → on conserve"
-else
+
   log_warning "Seulement $PART_COUNT partition(s) détectée(s) → on repartitionne proprement"
   log_info "Suppression des partitions existantes et création des 4 demandées par le TP"
 
