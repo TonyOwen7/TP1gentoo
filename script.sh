@@ -29,29 +29,6 @@ echo "================================================================"
 echo ""
 
 # ============================================================================
-# VÉRIFICATION INITIALE
-# ============================================================================
-log_info "Vérification de l'environnement VirtualBox"
-
-if ! command -v VBoxManage >/dev/null 2>&1; then
-    log_error "VirtualBox n'est pas installé ou VBoxManage non trouvé"
-    exit 1
-fi
-
-# Vérifier si la VM existe déjà
-if VBoxManage list vms | grep -q "${VM_NAME}"; then
-    log_warning "La VM ${VM_NAME} existe déjà"
-    echo -n "Voulez-vous la supprimer et recommencer ? (y/N) "
-    read -r response
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-        VBoxManage unregistervm "${VM_NAME}" --delete 2>/dev/null || true
-        log_success "Ancienne VM supprimée"
-    else
-        log_info "Utilisation de la VM existante"
-    fi
-fi
-
-# ============================================================================
 # EXERCICE 1.2 - PARTITIONNEMENT
 # ============================================================================
 log_info "EXERCICE 1.2 - Partitionnement du disque ${DISK}"
