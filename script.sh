@@ -1,6 +1,6 @@
 #!/bin/bash
-# ISTY-ADMSYS-TP1 - Installation Gentoo complète
-# Exercices 1.1 à 1.9 - Version forcée
+# Gentoo Installation Script - TP1 (Ex. 1.1 → 1.9)
+# Version corrigée et optimisée
 
 set -euo pipefail
 
@@ -16,66 +16,51 @@ log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Variables de configuration - UTILISE /dev/sda
+# Variables de configuration
 DISK="/dev/sda"
+STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64-systemd.txt"
+PORTAGE_URL="https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz"
 MOUNT_POINT="/mnt/gentoo"
 
 echo "================================================================"
-echo "     ISTY-ADMSYS-TP1 - Installation Gentoo complète"
-echo "     Version forcée - Réinstallation complète"
+echo "     Installation automatisée de Gentoo Linux - TP1"
 echo "================================================================"
 echo ""
 
 # ============================================================================
-# EXERCICE 1.2 - PARTITIONNEMENT FORCÉ
+# EXERCICE 1.2 - PARTITIONNEMENT DU DISQUE
 # ============================================================================
-log_info "EXERCICE 1.2 - Partitionnement FORCÉ du disque ${DISK}"
+log_info "EXERCICE 1.2 - Partitionnement du disque ${DISK}"
 
-# Démontage de tout ce qui est monté sur ce disque
-log_info "Démontage des partitions existantes..."
+# Démontage préalable au cas où
 umount "${DISK}1" 2>/dev/null || true
-umount "${DISK}2" 2>/dev/null || true  
+umount "${DISK}2" 2>/dev/null || true
 umount "${DISK}3" 2>/dev/null || true
 umount "${DISK}4" 2>/dev/null || true
-umount "${MOUNT_POINT}/boot" 2>/dev/null || true
-umount "${MOUNT_POINT}/home" 2>/dev/null || true
-umount "${MOUNT_POINT}" 2>/dev/null || true
 swapoff "${DISK}2" 2>/dev/null || true
 
-# Nettoyage de la table de partitions
-log_info "Nettoyage de la table de partitions..."
-dd if=/dev/zero of="${DISK}" bs=512 count=1 2>/dev/null || true
-sleep 2
-
 log_info "Création des partitions avec fdisk..."
-log_info "Plan de partitionnement:"
-log_info "  - ${DISK}1: /boot 100M ext2"
-log_info "  - ${DISK}2: swap 256M" 
-log_info "  - ${DISK}3: / 6G ext4"
-log_info "  - ${DISK}4: /home 6G ext4"
-
-# Création des partitions
 (
-    echo o                        # Nouvelle table de partitions
-    echo n; echo p; echo 1        # Partition primaire 1
-    echo ; echo +100M             # /boot 100M
-    echo n; echo p; echo 2        # Partition primaire 2  
-    echo ; echo +256M             # swap 256M
-    echo n; echo p; echo 3        # Partition primaire 3
-    echo ; echo +6G               # / 6G
-    echo n; echo p; echo 4        # Partition primaire 4
-    echo ; echo +6G               # /home 6G
-    echo t; echo 2; echo 82       # Type swap
-    echo w                        # Écriture
+  echo o                          # Nouvelle table de partitions
+  echo n; echo p; echo 1          # Partition 1
+  echo ; echo +100M               # /boot 100M
+  echo n; echo p; echo 2          # Partition 2
+  echo ; echo +256M               # swap 256M
+  echo n; echo p; echo 3          # Partition 3
+  echo ; echo +6G                 # / 6G
+  echo n; echo p; echo 4          # Partition 4
+  echo ; echo +6G                 # /home 6G (EXACTEMENT COMME L'EXERCICE)
+  echo t; echo 2; echo 82         # Type swap
+  echo w                          # Écriture
 ) | fdisk "${DISK}" >/dev/null 2>&1
 
 # Attendre que le kernel détecte les nouvelles partitions
 sleep 3
 partprobe "${DISK}" 2>/dev/null || true
-log_success "Partitions créées selon l'exercice 1.2"
+log_success "Partitions créées"
 
 # ============================================================================
-# EXERCICE 1.3 - FORMATAGE AVEC LABELS
+# EXERCICE 1.3 - FORMATAGE DES PARTITIONS
 # ============================================================================
 log_info "EXERCICE 1.3 - Formatage des partitions avec labels"
 
@@ -100,51 +85,77 @@ log_success "Partition /home formatée (ext4) avec label 'home'"
 # ============================================================================
 log_info "EXERCICE 1.4 - Montage des partitions et activation swap"
 
-# Création des points de montage
 mkdir -p "${MOUNT_POINT}"
 
 log_info "Montage de la partition racine..."
 mount "${DISK}3" "${MOUNT_POINT}"
-log_success "Partition / montée sur ${MOUNT_POINT}"
+log_success "/ monté sur ${MOUNT_POINT}"
 
 mkdir -p "${MOUNT_POINT}/boot"
 log_info "Montage de /boot..."
 mount "${DISK}1" "${MOUNT_POINT}/boot"
-log_success "Partition /boot montée"
+log_success "/boot monté"
 
 mkdir -p "${MOUNT_POINT}/home"
 log_info "Montage de /home..."
 mount "${DISK}4" "${MOUNT_POINT}/home"
-log_success "Partition /home montée"
+log_success "/home monté"
 
 log_info "Activation du swap..."
 swapon "${DISK}2"
 log_success "Swap activé sur ${DISK}2"
 
 # ============================================================================
-# EXERCICE 1.5 - TÉLÉCHARGEMENT STAGE3 ET PORTAGE
+# CRÉATION DU FSTAB
+# ============================================================================
+log_info "Génération de /etc/fstab"
+
+mkdir -p "${MOUNT_POINT}/etc"
+cat > "${MOUNT_POINT}/etc/fstab" <<'EOF'
+# <fs>         <mountpoint>  <type>  <opts>              <dump/pass>
+LABEL=root     /             ext4    defaults,noatime    0 1
+LABEL=boot     /boot         ext2    defaults            0 2
+LABEL=home     /home         ext4    defaults,noatime    0 2
+LABEL=swap     none          swap    sw                  0 0
+EOF
+
+log_success "fstab créé"
+
+# ============================================================================
+# SYNCHRONISATION DE L'HORLOGE
+# ============================================================================
+log_info "Synchronisation de l'horloge système"
+
+# Méthode simple et fiable pour VirtualBox
+log_info "Réglage de l'heure système..."
+hwclock --hctosys 2>/dev/null || true
+log_success "Horloge système configurée"
+
+# ============================================================================
+# EXERCICE 1.5 - TÉLÉCHARGEMENT DU STAGE3 ET PORTAGE
 # ============================================================================
 log_info "EXERCICE 1.5 - Téléchargement du stage3 et de Portage"
 
 cd "${MOUNT_POINT}"
 
-# Supprimer les anciens fichiers s'ils existent
-rm -f stage3-*.tar.xz* portage-latest.tar.xz 2>/dev/null || true
-
-# URL pour le stage3 le plus récent
-STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64-systemd.txt"
+# Obtenir l'URL du stage3 le plus récent
+log_info "Récupération de l'URL du stage3 le plus récent..."
 ACTUAL_STAGE3_URL=$(wget -qO- "${STAGE3_URL}" | grep -v '^#' | awk '{print $1}')
 STAGE3_BASE_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${ACTUAL_STAGE3_URL}"
-PORTAGE_URL="https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz"
-
 STAGE3_FILENAME=$(basename "${ACTUAL_STAGE3_URL}")
 
 log_info "Téléchargement du stage3: ${STAGE3_FILENAME}"
-wget --quiet --show-progress "${STAGE3_BASE_URL}"
+wget --quiet --show-progress "${STAGE3_BASE_URL}" || {
+  log_error "Échec du téléchargement du stage3"
+  exit 1
+}
 log_success "Stage3 téléchargé"
 
-log_info "Téléchargement du snapshot Portage"
-wget --quiet --show-progress "${PORTAGE_URL}"
+log_info "Téléchargement de Portage..."
+wget --quiet --show-progress "${PORTAGE_URL}" || {
+  log_error "Échec du téléchargement de Portage"
+  exit 1
+}
 log_success "Portage téléchargé"
 
 # ============================================================================
@@ -161,7 +172,7 @@ mkdir -p "${MOUNT_POINT}/var/db/repos/gentoo"
 cd "${MOUNT_POINT}/var/db/repos/gentoo"
 tar xpf "${MOUNT_POINT}/portage-latest.tar.xz"
 rm -f "${MOUNT_POINT}/portage-latest.tar.xz"
-log_success "Portage extrait dans /var/db/repos/gentoo"
+log_success "Portage installé"
 
 # ============================================================================
 # EXERCICE 1.7 - PRÉPARATION DU CHROOT
@@ -173,6 +184,8 @@ mount --rbind /sys "${MOUNT_POINT}/sys"
 mount --make-rslave "${MOUNT_POINT}/sys"
 mount --rbind /dev "${MOUNT_POINT}/dev"
 mount --make-rslave "${MOUNT_POINT}/dev"
+
+# Copie des informations DNS
 cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/"
 
 log_success "Environnement chroot prêt"
@@ -186,7 +199,7 @@ chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_CMDS'
 #!/bin/bash
 set -euo pipefail
 
-echo "=== DÉBUT EXERCICE 1.8 DANS CHROOT ==="
+echo "=== DÉBUT EXERCICE 1.8 ==="
 
 # Chargement du profil
 source /etc/profile
@@ -226,16 +239,6 @@ cd /etc/init.d
 ln -sf net.lo net.eth0
 rc-update add net.eth0 default
 
-# Configuration de /etc/fstab
-echo "Configuration de /etc/fstab..."
-cat > /etc/fstab <<'EOF'
-# <fs>         <mountpoint>  <type>  <opts>              <dump/pass>
-LABEL=root     /             ext4    defaults,noatime    0 1
-LABEL=boot     /boot         ext2    defaults            0 2
-LABEL=home     /home         ext4    defaults,noatime    0 2
-LABEL=swap     none          swap    sw                  0 0
-EOF
-
 echo "✅ Configuration de base terminée (Exercice 1.8)"
 
 CHROOT_CMDS
@@ -249,7 +252,7 @@ chroot "${MOUNT_POINT}" /bin/bash <<'HTOP_CMDS'
 #!/bin/bash
 set -euo pipefail
 
-echo "=== DÉBUT EXERCICE 1.9 DANS CHROOT ==="
+echo "=== DÉBUT EXERCICE 1.9 ==="
 
 source /etc/profile
 export PS1="(chroot) \$PS1"
@@ -278,30 +281,33 @@ echo "✅ htop installé avec succès - Exercice 1.9 terminé"
 HTOP_CMDS
 
 # ============================================================================
-# FIN DU SCRIPT
+# FIN DU SCRIPT - RAPPORT FINAL
 # ============================================================================
-log_success "🎉 TOUS LES EXERCICES 1.2 À 1.9 TERMINÉS AVEC SUCCÈS !"
-
 echo ""
 echo "================================================================"
+log_success "🎉 TP1 COMPLÈTEMENT TERMINÉ !"
+echo "================================================================"
+echo ""
 echo "📋 RÉCAPITULATIF DES EXERCICES COMPLÉTÉS :"
-echo "================================================================"
-echo "✅ 1.2 - Partitionnement du disque /dev/sda"
-echo "✅ 1.3 - Formatage avec labels" 
-echo "✅ 1.4 - Montage partitions et activation swap"
-echo "✅ 1.5 - Téléchargement stage3 et Portage"
-echo "✅ 1.6 - Extraction des archives"
-echo "✅ 1.7 - Environnement chroot"
-echo "✅ 1.8 - Configuration environnement"
-echo "✅ 1.9 - Installation htop"
+echo "  ✅ 1.2 - Partitionnement du disque /dev/sda"
+echo "  ✅ 1.3 - Formatage avec labels" 
+echo "  ✅ 1.4 - Montage partitions et activation swap"
+echo "  ✅ 1.5 - Téléchargement stage3 et Portage"
+echo "  ✅ 1.6 - Extraction des archives"
+echo "  ✅ 1.7 - Environnement chroot"
+echo "  ✅ 1.8 - Configuration environnement"
+echo "  ✅ 1.9 - Installation htop"
 echo ""
-echo "🚀 PROCHAINES ÉTAPES MANUELLES :"
-echo "   # chroot /mnt/gentoo /bin/bash"
-echo "   # source /etc/profile"
-echo "   # emerge gentoo-sources"
-echo "   # genkernel all"
-echo "   # emerge grub"
-echo "   # grub-install /dev/sda"
-echo "   # grub-mkconfig -o /boot/grub/grub.cfg"
+echo "🐧 SYSTÈME GENTOO INSTALLÉ :"
+echo "  - Partitions: /boot 100M, swap 256M, / 6G, /home 6G"
+echo "  - Clavier français configuré"
+echo "  - Locales fr_FR.UTF-8"
+echo "  - Fuseau horaire Europe/Paris"
+echo "  - Réseau DHCP configuré"
+echo "  - Htop installé"
 echo ""
-echo "🐧 Gentoo est maintenant installé et configuré !"
+echo "🚀 POUR CONTINUER :"
+echo "   Le système Gentoo est maintenant installé dans ${MOUNT_POINT}"
+echo "   Vous pouvez continuer avec la compilation du noyau et GRUB"
+echo ""
+log_success "Bonne continuation avec Gentoo ! 🐧"
