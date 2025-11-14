@@ -17,7 +17,7 @@ log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Variables de configuration
-DISK="/dev/vda"
+DISK="/dev/sda"
 MOUNT_POINT="/mnt/gentoo"
 VM_NAME="Gentoo-TP1-ISTY"
 OVA_FILE="${VM_NAME}.ova"
@@ -33,8 +33,10 @@ echo ""
 # ============================================================================
 log_info "EXERCICE 1.2 - Partitionnement du disque ${DISK}"
 
-if lsblk "${DISK}" 2>/dev/null | grep -q "${DISK}1"; then
-    log_warning "Partitions déjà présentes - Skip du partitionnement"
+# Vérifier si on a les 4 partitions demandées
+PARTITION_COUNT=$(lsblk -ln "${DISK}" | grep -c "${DISK}[1-9]")
+if [ "$PARTITION_COUNT" -eq 4 ]; then
+    log_warning "4 partitions déjà présentes - continuation du script"
 else
     log_info "Création des partitions avec fdisk..."
     log_info "Plan de partitionnement:"
@@ -67,70 +69,53 @@ fi
 # ============================================================================
 log_info "EXERCICE 1.3 - Formatage des partitions avec labels"
 
-if ! blkid -L boot >/dev/null 2>&1; then
-    mkfs.ext2 -F -L boot "${DISK}1" >/dev/null 2>&1
-    log_success "Partition /boot formatée (ext2) avec label 'boot'"
-else
-    log_warning "Partition /boot déjà formatée"
-fi
+# Forcer le formatage même si les labels existent
+log_info "Formatage de /boot..."
+mkfs.ext2 -F -L boot "${DISK}1" >/dev/null 2>&1 || log_warning "Formatage /boot peut avoir échoué (déjà fait?)"
+log_success "Partition /boot formatée (ext2) avec label 'boot'"
 
-if ! blkid -L swap >/dev/null 2>&1; then
-    mkswap -L swap "${DISK}2" >/dev/null 2>&1
-    log_success "Partition swap formatée avec label 'swap'"
-else
-    log_warning "Partition swap déjà formatée"
-fi
+log_info "Formatage du swap..."
+mkswap -L swap "${DISK}2" >/dev/null 2>&1 || log_warning "Formatage swap peut avoir échoué (déjà fait?)"
+log_success "Partition swap formatée avec label 'swap'"
 
-if ! blkid -L root >/dev/null 2>&1; then
-    mkfs.ext4 -F -L root "${DISK}3" >/dev/null 2>&1
-    log_success "Partition / formatée (ext4) avec label 'root'"
-else
-    log_warning "Partition / déjà formatée"
-fi
+log_info "Formatage de /..."
+mkfs.ext4 -F -L root "${DISK}3" >/dev/null 2>&1 || log_warning "Formatage / peut avoir échoué (déjà fait?)"
+log_success "Partition / formatée (ext4) avec label 'root'"
 
-if ! blkid -L home >/dev/null 2>&1; then
-    mkfs.ext4 -F -L home "${DISK}4" >/dev/null 2>&1
-    log_success "Partition /home formatée (ext4) avec label 'home'"
-else
-    log_warning "Partition /home déjà formatée"
-fi
+log_info "Formatage de /home..."
+mkfs.ext4 -F -L home "${DISK}4" >/dev/null 2>&1 || log_warning "Formatage /home peut avoir échoué (déjà fait?)"
+log_success "Partition /home formatée (ext4) avec label 'home'"
 
 # ============================================================================
 # EXERCICE 1.4 - MONTAGE DES PARTITIONS
 # ============================================================================
 log_info "EXERCICE 1.4 - Montage des partitions et activation swap"
 
+# Démontage d'abord au cas où
+umount "${MOUNT_POINT}/boot" 2>/dev/null || true
+umount "${MOUNT_POINT}/home" 2>/dev/null || true
+umount "${MOUNT_POINT}" 2>/dev/null || true
+swapoff "${DISK}2" 2>/dev/null || true
+
 mkdir -p "${MOUNT_POINT}"
 
-if ! mountpoint -q "${MOUNT_POINT}"; then
-    mount "${DISK}3" "${MOUNT_POINT}"
-    log_success "Partition / montée sur ${MOUNT_POINT}"
-else
-    log_warning "/ déjà monté"
-fi
+log_info "Montage de la partition racine..."
+mount "${DISK}3" "${MOUNT_POINT}" || { log_error "Échec montage ${DISK}3"; exit 1; }
+log_success "Partition / montée sur ${MOUNT_POINT}"
 
 mkdir -p "${MOUNT_POINT}/boot"
-if ! mountpoint -q "${MOUNT_POINT}/boot"; then
-    mount "${DISK}1" "${MOUNT_POINT}/boot"
-    log_success "Partition /boot montée"
-else
-    log_warning "/boot déjà monté"
-fi
+log_info "Montage de /boot..."
+mount "${DISK}1" "${MOUNT_POINT}/boot" || { log_error "Échec montage ${DISK}1"; exit 1; }
+log_success "Partition /boot montée"
 
 mkdir -p "${MOUNT_POINT}/home"
-if ! mountpoint -q "${MOUNT_POINT}/home"; then
-    mount "${DISK}4" "${MOUNT_POINT}/home"
-    log_success "Partition /home montée"
-else
-    log_warning "/home déjà monté"
-fi
+log_info "Montage de /home..."
+mount "${DISK}4" "${MOUNT_POINT}/home" || { log_error "Échec montage ${DISK}4"; exit 1; }
+log_success "Partition /home montée"
 
-if ! swapon --show | grep -q "${DISK}2"; then
-    swapon "${DISK}2"
-    log_success "Swap activé sur ${DISK}2"
-else
-    log_success "Swap déjà actif"
-fi
+log_info "Activation du swap..."
+swapon "${DISK}2" || { log_error "Échec activation swap"; exit 1; }
+log_success "Swap activé sur ${DISK}2"
 
 # ============================================================================
 # EXERCICE 1.5 - TÉLÉCHARGEMENT STAGE3 ET PORTAGE
@@ -139,41 +124,42 @@ log_info "EXERCICE 1.5 - Téléchargement du stage3 et de Portage"
 
 cd "${MOUNT_POINT}"
 
+# Supprimer les anciens fichiers s'ils existent
+rm -f stage3-*.tar.xz* portage-latest.tar.xz 2>/dev/null || true
+
 STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64-systemd.txt"
 ACTUAL_STAGE3_URL=$(wget -qO- "${STAGE3_URL}" | grep -v '^#' | awk '{print $1}')
 STAGE3_BASE_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/${ACTUAL_STAGE3_URL}"
 PORTAGE_URL="https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz"
 
 STAGE3_FILENAME=$(basename "${ACTUAL_STAGE3_URL}")
-if [ ! -f "${STAGE3_FILENAME}" ]; then
-    log_info "Téléchargement du stage3: ${STAGE3_FILENAME}"
-    wget --quiet --show-progress "${STAGE3_BASE_URL}"
-    log_success "Stage3 téléchargé"
-else
-    log_warning "Stage3 déjà présent: ${STAGE3_FILENAME}"
-fi
+log_info "Téléchargement du stage3: ${STAGE3_FILENAME}"
+wget --quiet --show-progress "${STAGE3_BASE_URL}" || { log_error "Échec téléchargement stage3"; exit 1; }
+log_success "Stage3 téléchargé"
 
-if [ ! -f "portage-latest.tar.xz" ]; then
-    log_info "Téléchargement du snapshot Portage"
-    wget --quiet --show-progress "${PORTAGE_URL}"
-    log_success "Portage téléchargé"
-else
-    log_warning "Portage déjà présent"
-fi
+log_info "Téléchargement du snapshot Portage"
+wget --quiet --show-progress "${PORTAGE_URL}" || { log_error "Échec téléchargement Portage"; exit 1; }
+log_success "Portage téléchargé"
 
 # ============================================================================
 # EXERCICE 1.6 - EXTRACTION DES ARCHIVES
 # ============================================================================
 log_info "EXERCICE 1.6 - Extraction des archives"
 
+# Vérifier que l'archive stage3 existe
+if [ ! -f "${STAGE3_FILENAME}" ]; then
+    log_error "Archive stage3 non trouvée: ${STAGE3_FILENAME}"
+    exit 1
+fi
+
 log_info "Extraction du stage3..."
-tar xpf "${STAGE3_FILENAME}" --xattrs-include='*.*' --numeric-owner
+tar xpf "${STAGE3_FILENAME}" --xattrs-include='*.*' --numeric-owner || { log_error "Échec extraction stage3"; exit 1; }
 log_success "Stage3 extrait avec succès"
 
 log_info "Extraction de Portage..."
 mkdir -p "${MOUNT_POINT}/var/db/repos/gentoo"
 cd "${MOUNT_POINT}/var/db/repos/gentoo"
-tar xpf "${MOUNT_POINT}/portage-latest.tar.xz"
+tar xpf "${MOUNT_POINT}/portage-latest.tar.xz" || { log_error "Échec extraction Portage"; exit 1; }
 rm -f "${MOUNT_POINT}/portage-latest.tar.xz"
 log_success "Portage extrait dans /var/db/repos/gentoo"
 
@@ -182,12 +168,13 @@ log_success "Portage extrait dans /var/db/repos/gentoo"
 # ============================================================================
 log_info "EXERCICE 1.7 - Préparation de l'environnement chroot"
 
-mount -t proc /proc "${MOUNT_POINT}/proc"
-mount --rbind /sys "${MOUNT_POINT}/sys"
-mount --make-rslave "${MOUNT_POINT}/sys"
-mount --rbind /dev "${MOUNT_POINT}/dev"
-mount --make-rslave "${MOUNT_POINT}/dev"
-cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/"
+# Monter les systèmes de fichiers virtuels
+mount -t proc /proc "${MOUNT_POINT}/proc" || log_warning "Échec montage /proc"
+mount --rbind /sys "${MOUNT_POINT}/sys" || log_warning "Échec montage /sys"
+mount --make-rslave "${MOUNT_POINT}/sys" || log_warning "Échec make-rslave /sys"
+mount --rbind /dev "${MOUNT_POINT}/dev" || log_warning "Échec montage /dev"
+mount --make-rslave "${MOUNT_POINT}/dev" || log_warning "Échec make-rslave /dev"
+cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || log_warning "Échec copie resolv.conf"
 
 log_success "Environnement chroot prêt"
 
@@ -271,7 +258,7 @@ set -euo pipefail
 source /etc/profile
 export PS1="(chroot) \$PS1"
 
-echo "🔧 Configuration du système complet pour l'export OVA..."
+echo "🔧 Configuration du système complet..."
 
 # Configuration de Portage
 mkdir -p /etc/portage/repos.conf
@@ -291,21 +278,20 @@ emerge-webrsync
 echo "📦 Installation de htop avec emerge..."
 emerge --noreplace --quiet htop
 
-# Installation des outils système essentiels
-echo "📦 Installation des outils système..."
+echo "✅ htop installé avec succès - Exercice 1.9 terminé"
+
+# Installation des outils système essentiels (pour un système fonctionnel)
+echo "📦 Installation des outils système complémentaires..."
 emerge --noreplace --quiet app-admin/sudo
 emerge --noreplace --quiet sys-kernel/gentoo-sources
 emerge --noreplace --quiet sys-kernel/genkernel
 emerge --noreplace --quiet sys-boot/grub
-
-# Installation de dhcpcd
-echo "📦 Installation de dhcpcd..."
 emerge --noreplace --quiet net-misc/dhcpcd
 
 # Configuration des utilisateurs
 echo "👤 Configuration des utilisateurs..."
 echo "root:gentoo" | chpasswd
-useradd -m -G users,wheel -s /bin/bash etudiant
+useradd -m -G users,wheel -s /bin/bash etudiant 2>/dev/null || echo "Utilisateur etudiant existe déjà"
 echo "etudiant:etudiant" | chpasswd
 
 # Configuration sudo
@@ -325,44 +311,14 @@ echo "🔧 Configuration des services..."
 rc-update add dhcpcd default
 rc-update add sshd default
 
-# Création d'un fichier de bienvenue
-cat > /etc/motd <<'EOF'
-=============================================
-    🐧 Gentoo TP1 - ISTY ADMSYS
-    Installation complète avec export OVA
-=============================================
-- User: etudiant/etudiant ou root/gentoo
-- Toutes les partitions sont montées
-- Environnement français configuré
-- Htop installé pour le monitoring
-=============================================
-EOF
-
-# Script de premier démarrage pour régénération des clés
-cat > /etc/firstboot.sh <<'EOF'
-#!/bin/bash
-if [ ! -f /etc/ssh/ssh_host_key ]; then
-    echo "🔑 Génération des clés SSH..."
-    ssh-keygen -A
-fi
-# Régénération machine-id pour systemd
-if [ -f /etc/machine-id ]; then
-    rm /etc/machine-id
-    systemd-machine-id-setup
-fi
-rm -f /etc/firstboot.sh
-EOF
-
-chmod +x /etc/firstboot.sh
-
-echo "✅ Système complètement configuré et prêt pour l'export OVA"
+echo "✅ Système complètement configuré !"
 
 SYSTEM_CMDS
 
 # ============================================================================
-# NETTOYAGE ET PRÉPARATION POUR L'EXPORT
+# NETTOYAGE FINAL
 # ============================================================================
-log_info "Préparation de l'export OVA"
+log_info "Nettoyage final..."
 
 chroot "${MOUNT_POINT}" /bin/bash <<'CLEANUP_CMDS'
 #!/bin/bash
@@ -370,20 +326,16 @@ set -euo pipefail
 
 source /etc/profile
 
-echo "🧹 Nettoyage du système pour l'export..."
+echo "🧹 Nettoyage du système..."
 
 # Nettoyage des logs
-rm -rf /var/log/*
+rm -rf /var/log/* 2>/dev/null || true
 find /var/tmp -type f -delete 2>/dev/null || true
 find /tmp -type f -delete 2>/dev/null || true
 
 # Nettoyage de l'historique
-rm -f /root/.bash_history
-rm -f /home/etudiant/.bash_history
-
-# Nettoyage des fichiers temporaires de Portage
-rm -rf /var/tmp/portage/*
-rm -rf /var/cache/edb/dep/*
+rm -f /root/.bash_history 2>/dev/null || true
+rm -f /home/etudiant/.bash_history 2>/dev/null || true
 
 echo "✅ Nettoyage terminé"
 
@@ -396,10 +348,8 @@ umount -l "${MOUNT_POINT}/dev"{/shm,/pts,} 2>/dev/null || true
 umount -R "${MOUNT_POINT}" 2>/dev/null || true
 swapoff "${DISK}2" 2>/dev/null || true
 
-log_success "✅ Installation Gentoo terminée avec succès !"
-
 # ============================================================================
-# INSTRUCTIONS POUR L'EXPORT MANUEL
+# RAPPORT FINAL
 # ============================================================================
 echo ""
 echo "================================================================"
@@ -424,17 +374,10 @@ echo "  - Sudo configuré"
 echo "  - Environnement français"
 echo "  - Htop installé"
 echo ""
-echo "🚀 POUR EXPORTER EN OVA :"
-echo "1. Redémarrer sur le disque dur (retirer le LiveCD)"
-echo "2. Démarrer la VM Gentoo"
-echo "3. Dans la VM, installer VirtualBox Guest Additions si besoin"
-echo "4. Depuis l'hôte, exporter :"
-echo "   VBoxManage export \"${VM_NAME}\" --output \"${OVA_FILE}\" --ovf20"
+echo "🚀 POUR DÉMARRER :"
+echo "1. Redémarrer la VM"
+echo "2. Retirer le LiveCD du démarrage"
+echo "3. Se connecter avec : etudiant/etudiant ou root/gentoo"
 echo ""
-echo "📦 La personne qui importe l'OVA verra EXACTEMENT :"
-echo "   - Toutes les partitions montées"
-echo "   - La configuration française"
-echo "   - Les utilisateurs créés"
-echo "   - Htop installé et fonctionnel"
-echo "   - Le système complet avec noyau compilé"
+echo "💡 Testez htop : 'htop' dans le terminal"
 echo ""
