@@ -43,7 +43,7 @@ else
     echo n; echo p; echo 1; echo ""; echo +100M    # /boot
     echo n; echo p; echo 2; echo ""; echo +256M    # swap
     echo n; echo p; echo 3; echo ""; echo +6G      # /
-    echo n; echo p; echo 4; echo ""; echo +6G      # /home
+    echo n; echo p; echo 4; echo ""; echo ""       # /home (reste)
     echo t; echo 2; echo 82                        # Type swap
     echo w      # Écriture
   ) | fdisk "${DISK}" >/dev/null 2>&1
@@ -252,133 +252,9 @@ cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
 log_success "Environnement chroot prêt"
 
 # ============================================================================
-# VÉRIFICATION FINALE DU SYSTÈME
+# ENTRÉE DANS LE CHROOT ET CONFIGURATION
 # ============================================================================
-log_info "Vérification de l'installation"
-
-# Vérifier que GRUB est bien installé
-if [ -f /boot/grub/grub.cfg ]; then
-    log_success "GRUB correctement configuré"
-else
-    log_warning "Configuration GRUB non trouvée"
-fi
-
-# Vérifier que le noyau est présent
-if ls /boot/vmlinuz-* >/dev/null 2>&1; then
-    log_success "Noyau installé dans /boot"
-else
-    log_warning "Noyau non trouvé dans /boot"
-fi
-
-# Créer un fichier d'information pour l'utilisateur
-cat > /home/student/INSTALLATION-INFO.txt <<'INFOFILE'
-═══════════════════════════════════════════════════════════════════
-              INFORMATIONS D'INSTALLATION GENTOO
-═══════════════════════════════════════════════════════════════════
-
-✓ Installation complète terminée avec succès
-
-CONFIGURATION SYSTÈME
-────────────────────────────────────────────────────────────────────
-Partitions :
-  /dev/sda1 : /boot (100M, ext2)
-  /dev/sda2 : swap (256M)
-  /dev/sda3 : / (6G, ext4)
-  /dev/sda4 : /home (6G, ext4)
-
-Comptes utilisateur :
-  root     : gentoo     (⚠️  À CHANGER IMMÉDIATEMENT !)
-  student  : student    (⚠️  À CHANGER IMMÉDIATEMENT !)
-
-Bootloader : GRUB installé sur /dev/sda
-Noyau : Compilé avec genkernel
-
-PREMIER DÉMARRAGE
-────────────────────────────────────────────────────────────────────
-1. Changer les mots de passe :
-   passwd              # Pour root
-   passwd student      # Pour student
-
-2. Vérifier le réseau :
-   ip addr             # Voir les interfaces
-   ping google.com     # Tester la connexion
-
-3. Mettre à jour le système :
-   emerge --sync
-   emerge --update @world
-
-OUTILS INSTALLÉS
-────────────────────────────────────────────────────────────────────
-- htop : Moniteur de ressources
-- dhcpcd : Client DHCP
-- sudo : Élévation de privilèges
-- vim, nano : Éditeurs de texte
-
-═══════════════════════════════════════════════════════════════════
-INFOFILE
-
-chown student:users /home/student/INSTALLATION-INFO.txt
-log_success "Fichier d'information créé pour l'utilisateur"
-
-# Créer un message de bienvenue au login
-cat > /etc/motd <<'MOTD'
-
-╔═══════════════════════════════════════════════════════════════════╗
-║                    BIENVENUE SUR GENTOO LINUX                     ║
-╚═══════════════════════════════════════════════════════════════════╝
-
-📋 Documentation : /home/student/INSTALLATION-INFO.txt
-🔧 Commandes utiles : htop, ip addr, emerge --sync
-
-⚠️  IMPORTANT : Changez immédiatement les mots de passe par défaut !
-   → passwd         (pour root)
-   → passwd student (pour student)
-
-MOTD
-
-log_success "Message de bienvenue configuré"
-
-# Créer un script d'aide rapide
-cat > /usr/local/bin/aide <<'AIDE'
-#!/bin/bash
-cat << 'EOF'
-═══════════════════════════════════════════════════════════════════
-                    AIDE RAPIDE - GENTOO LINUX
-═══════════════════════════════════════════════════════════════════
-
-COMMANDES SYSTÈME
-────────────────────────────────────────────────────────────────────
-htop                    : Moniteur de ressources
-df -h                   : Espace disque
-free -h                 : Mémoire disponible
-ip addr                 : Configuration réseau
-systemctl status        : État des services
-
-GESTION DES PAQUETS (Portage)
-────────────────────────────────────────────────────────────────────
-emerge --sync           : Synchroniser les paquets
-emerge --search <nom>   : Rechercher un paquet
-emerge <paquet>         : Installer un paquet
-emerge --update @world  : Mettre à jour le système
-emerge --depclean       : Nettoyer les paquets inutiles
-
-SÉCURITÉ
-────────────────────────────────────────────────────────────────────
-passwd                  : Changer son mot de passe
-sudo <commande>         : Exécuter en tant que root
-chmod +x fichier        : Rendre exécutable
-
-DOCUMENTATION
-────────────────────────────────────────────────────────────────────
-/home/student/INSTALLATION-INFO.txt
-https://wiki.gentoo.org/
-
-═══════════════════════════════════════════════════════════════════
-EOF
-AIDE
-
-chmod +x /usr/local/bin/aide
-log_success "Commande 'aide' créée"
+log_info "Entrée dans l'environnement chroot pour la configuration"
 
 chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_CMDS'
 #!/bin/bash
@@ -582,59 +458,20 @@ echo "  ✓ Noyau Linux compilé et installé"
 echo "  ✓ GRUB installé et configuré"
 echo "  ✓ Utilisateurs créés"
 echo "  ✓ Outils installés: htop, dhcpcd, sudo"
-echo "  ✓ Documentation et aide intégrées"
 echo ""
 echo "👤 Comptes créés :"
 echo "  - root (mot de passe: gentoo)"
 echo "  - student (mot de passe: student)"
 echo ""
-echo "📚 Documentation disponible :"
-echo "  - /home/student/INSTALLATION-INFO.txt"
-echo "  - Message de bienvenue au login (/etc/motd)"
-echo "  - Commande 'aide' pour l'aide rapide"
-echo ""
 echo "🔄 Pour démarrer le système :"
 echo "  1. Sortir du chroot: exit"
 echo "  2. Démonter les partitions: umount -R ${MOUNT_POINT}"
 echo "  3. Redémarrer: reboot"
-echo "  4. ⚠️  IMPORTANT: Retirer le LiveCD de la VM dans VirtualBox"
-echo "     Configuration > Stockage > Retirer le disque ISO"
+echo "  4. Retirer le LiveCD"
 echo ""
 echo "⚠️  N'OUBLIEZ PAS après le premier démarrage :"
 echo "  - Changer le mot de passe root: passwd"
 echo "  - Changer le mot de passe student: passwd student"
-echo ""
-echo "💾 POUR CRÉER L'OVA :"
-echo "════════════════════════════════════════════════════════════════"
-echo ""
-echo "  1. Suivez les étapes ci-dessus pour démarrer le système"
-echo "  2. Vérifiez que tout fonctionne (réseau, connexion, etc.)"
-echo "  3. Connectez-vous et testez : htop, ip addr, ping google.com"
-echo "  4. Éteindre proprement : poweroff"
-echo "  5. Dans VirtualBox : Fichier > Exporter un appareil virtuel"
-echo "  6. Sélectionner votre VM Gentoo"
-echo "  7. Format : OVA"
-echo "  8. Exporter"
-echo ""
-echo "📦 L'OVA CONTIENDRA :"
-echo "  ✓ Système Gentoo complet et fonctionnel"
-echo "  ✓ Boot automatique sur GRUB (sans LiveCD)"
-echo "  ✓ Réseau DHCP configuré"
-echo "  ✓ Tous les outils installés"
-echo "  ✓ Documentation intégrée"
-echo ""
-echo "👥 UTILISATION DE L'OVA (pour les autres utilisateurs) :"
-echo "════════════════════════════════════════════════════════════════"
-echo ""
-echo "  1. Importer le fichier .ova dans VirtualBox"
-echo "  2. Démarrer la VM"
-echo "  3. Le système démarre automatiquement sur Gentoo"
-echo "  4. Se connecter avec :"
-echo "     - root / gentoo"
-echo "     - student / student"
-echo "  5. Lire /home/student/INSTALLATION-INFO.txt"
-echo "  6. Taper 'aide' pour l'aide rapide"
-echo "  7. Changer les mots de passe immédiatement !"
 echo ""
 
 CHROOT_CMDS
@@ -647,7 +484,7 @@ echo "================================================================"
 log_success "Installation automatisée terminée avec succès !"
 echo "================================================================"
 echo ""
-echo "Le système Gentoo est maintenant complètement installé et prêt."
+echo "Le système Gentoo est maintenant complètement installé et prêt à démarrer."
 echo ""
 echo "🚀 Prochaines étapes :"
 echo ""
@@ -661,24 +498,11 @@ echo ""
 echo "3. Redémarrer la machine :"
 echo "   reboot"
 echo ""
-echo "4. ⚠️  CRITIQUE : Dans VirtualBox, RETIREZ le LiveCD :"
-echo "   Configuration > Stockage > Clic droit sur le CD > Retirer le disque"
+echo "4. Au démarrage, connectez-vous avec :"
+echo "   - Utilisateur: root ou student"
+echo "   - Mot de passe: gentoo ou student"
 echo ""
-echo "5. Après le redémarrage :"
-echo "   - Le système démarre sur GRUB automatiquement"
-echo "   - Connectez-vous avec root/gentoo ou student/student"
-echo "   - Lisez /home/student/INSTALLATION-INFO.txt"
-echo "   - Tapez 'aide' pour l'aide rapide"
-echo "   - Changez les mots de passe immédiatement !"
+echo "5. Après le premier démarrage, changez les mots de passe !"
 echo ""
-echo "6. Pour créer l'OVA (après vérification que tout fonctionne) :"
-echo "   - Éteindre la VM : poweroff"
-echo "   - VirtualBox : Fichier > Exporter un appareil virtuel"
-echo "   - Sélectionner la VM > Format OVA > Exporter"
-echo ""
-log_success "Bonne utilisation de votre système Gentoo ! 🐧"
-echo ""
-echo "📖 Ressources utiles :"
-echo "   - Documentation Gentoo : https://wiki.gentoo.org/"
-echo "   - Handbook AMD64 : https://wiki.gentoo.org/wiki/Handbook:AMD64"
+log_success "Bonne utilisation de votre nouveau système Gentoo ! 🐧"
 echo ""
