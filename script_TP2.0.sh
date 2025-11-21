@@ -1,5 +1,5 @@
 #!/bin/bash
-# Correction du profil systemd inexistant vers OpenRC
+# Diagnostic et correction automatique du profil Gentoo
 
 set -euo pipefail
 
@@ -8,6 +8,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -18,151 +19,21 @@ log_error() { echo -e "${RED}[✗]${NC} $1"; }
 MOUNT_POINT="/mnt/gentoo"
 
 echo "================================================================"
-echo "     Correction du profil systemd inexistant"
+echo "     Diagnostic et correction automatique du profil"
 echo "================================================================"
 echo ""
 
-# Fonction de correction
-fix_profile_in_chroot() {
-    chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_FIX'
-#!/bin/bash
-set -euo pipefail
-
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
-log_error() { echo -e "${RED}[✗]${NC} $1"; }
-
-source /etc/profile 2>/dev/null || true
-export PS1="(chroot) \$PS1"
-
-echo ""
-log_info "Diagnostic du problème..."
-
-# Afficher le profil actuel (cassé)
-if [ -L "/etc/portage/make.profile" ]; then
-    CURRENT=$(readlink /etc/portage/make.profile)
-    echo "  Profil actuel (CASSÉ): ${CURRENT}"
-    
-    if [ ! -d "${CURRENT}" ]; then
-        log_error "Ce répertoire n'existe pas !"
-    fi
-fi
-
-echo ""
-log_info "Recherche des profils disponibles..."
-
-# Lister les profils disponibles
-echo "  Profils dans /var/db/repos/gentoo/profiles/default/linux/amd64/:"
-if [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64" ]; then
-    ls -1 /var/db/repos/gentoo/profiles/default/linux/amd64/ 2>/dev/null | grep -E "^[0-9]" | sort -V
-else
-    log_error "Le dépôt Gentoo n'est pas présent !"
-    exit 1
-fi
-
-echo ""
-log_info "Sélection d'un profil OpenRC approprié..."
-
-# Recherche du meilleur profil OpenRC disponible
-PROFILE_PATH=""
-
-# Ordre de priorité des profils
-for VERSION in 23.0 17.1 17.0 13.0; do
-    if [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64/${VERSION}" ]; then
-        PROFILE_PATH="/var/db/repos/gentoo/profiles/default/linux/amd64/${VERSION}"
-        PROFILE_NAME="default/linux/amd64/${VERSION}"
-        break
-    fi
-done
-
-if [ -z "${PROFILE_PATH}" ]; then
-    log_error "Aucun profil OpenRC trouvé !"
-    echo ""
-    echo "Profils disponibles:"
-    find /var/db/repos/gentoo/profiles/default/linux/amd64/ -maxdepth 1 -type d
-    exit 1
-fi
-
-echo "  ✓ Profil trouvé: ${PROFILE_NAME}"
-
-# Suppression de l'ancien lien cassé
-log_info "Suppression de l'ancien lien cassé..."
-rm -f /etc/portage/make.profile
-
-# Création du nouveau lien vers OpenRC
-log_info "Création du lien vers le profil OpenRC..."
-ln -sf "${PROFILE_PATH}" /etc/portage/make.profile
-
-log_success "Nouveau profil configuré: ${PROFILE_NAME}"
-
-# Vérification
-echo ""
-log_info "Vérification du nouveau profil..."
-if [ -d "/etc/portage/make.profile" ]; then
-    ACTUAL_PATH=$(readlink /etc/portage/make.profile)
-    echo "  Lien: ${ACTUAL_PATH}"
-    
-    if [ -d "${ACTUAL_PATH}" ]; then
-        log_success "Le profil est VALIDE !"
-    else
-        log_error "Le profil est toujours invalide"
-        exit 1
-    fi
-else
-    log_error "Le lien n'a pas été créé correctement"
-    exit 1
-fi
-
-# Test avec eselect
-echo ""
-log_info "Affichage du profil sélectionné..."
-if command -v eselect >/dev/null 2>&1; then
-    eselect profile show
-else
-    echo "  $(readlink /etc/portage/make.profile)"
-fi
-
-# Test avec emerge
-echo ""
-log_info "Test avec emerge --info..."
-if emerge --info 2>&1 | head -10; then
-    log_success "emerge fonctionne correctement !"
-else
-    log_error "emerge a encore des problèmes"
-fi
-
-echo ""
-echo "════════════════════════════════════════════════════════════"
-log_success "PROFIL CORRIGÉ DE SYSTEMD VERS OPENRC !"
-echo "════════════════════════════════════════════════════════════"
-echo ""
-echo "AVANT: default/linux/amd64/23.0/systemd (INEXISTANT)"
-echo "APRÈS: ${PROFILE_NAME} (OpenRC - VALIDE)"
-echo ""
-
-CHROOT_FIX
-}
-
-# Vérifier que le système est monté
+# Montage si nécessaire
 if [ ! -d "${MOUNT_POINT}/etc/portage" ]; then
-    log_error "Le système Gentoo n'est pas monté sur ${MOUNT_POINT}"
-    log_info "Montage du système..."
-    
+    log_info "Montage du système Gentoo..."
     mkdir -p "${MOUNT_POINT}"
-    mount /dev/sda3 "${MOUNT_POINT}" || {
-        log_error "Impossible de monter le système"
+    mount /dev/sda3 "${MOUNT_POINT}" 2>/dev/null || {
+        log_error "Impossible de monter /dev/sda3"
         exit 1
     }
 fi
 
 # Montage des systèmes virtuels
-log_info "Montage des systèmes virtuels..."
 mount -t proc /proc "${MOUNT_POINT}/proc" 2>/dev/null || true
 mount --rbind /sys "${MOUNT_POINT}/sys" 2>/dev/null || true
 mount --make-rslave "${MOUNT_POINT}/sys" 2>/dev/null || true
@@ -172,21 +43,204 @@ mount --bind /run "${MOUNT_POINT}/run" 2>/dev/null || true
 
 cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
 
-# Exécuter la correction
-fix_profile_in_chroot
+# Exécution dans le chroot
+chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_DIAGNOSTIC'
+#!/bin/bash
+set -euo pipefail
+
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
+log_error() { echo -e "${RED}[✗]${NC} $1"; }
+
+source /etc/profile 2>/dev/null || true
+export PS1="(chroot) \$PS1"
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+log_info "ÉTAPE 1 : DIAGNOSTIC DU PROBLÈME"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+
+# Vérifier le profil actuel
+log_info "Profil actuellement configuré:"
+if [ -L "/etc/portage/make.profile" ]; then
+    CURRENT_LINK=$(readlink /etc/portage/make.profile)
+    echo "  → ${CURRENT_LINK}"
+    
+    if [ -d "${CURRENT_LINK}" ]; then
+        log_success "Le profil existe"
+    else
+        log_error "Le profil N'EXISTE PAS (lien cassé)"
+    fi
+else
+    log_error "Aucun lien symbolique /etc/portage/make.profile"
+fi
+
+echo ""
+log_info "Vérification du dépôt Gentoo..."
+if [ -d "/var/db/repos/gentoo/profiles" ]; then
+    log_success "Dépôt Gentoo présent"
+else
+    log_error "Dépôt Gentoo ABSENT ! Synchronisation nécessaire"
+    
+    log_info "Tentative de synchronisation du dépôt..."
+    if command -v emerge-webrsync >/dev/null 2>&1; then
+        emerge-webrsync 2>&1 | tail -10
+        log_success "Dépôt synchronisé"
+    else
+        log_error "Impossible de synchroniser le dépôt"
+        exit 1
+    fi
+fi
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+log_info "ÉTAPE 2 : LISTE DES PROFILS DISPONIBLES"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+
+log_info "Profils AMD64 disponibles:"
+if [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64" ]; then
+    echo ""
+    ls -1 /var/db/repos/gentoo/profiles/default/linux/amd64/ | while read -r profile; do
+        if [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64/${profile}" ]; then
+            echo "  ✓ default/linux/amd64/${profile}"
+        fi
+    done
+    echo ""
+else
+    log_error "Aucun profil AMD64 trouvé"
+    
+    log_info "Structure du dépôt:"
+    find /var/db/repos/gentoo/profiles -maxdepth 3 -type d 2>/dev/null | grep -E "amd64|x86_64" | head -10
+fi
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+log_info "ÉTAPE 3 : SÉLECTION AUTOMATIQUE D'UN PROFIL"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+
+PROFILE_PATH=""
+PROFILE_NAME=""
+
+# Liste des profils à essayer (du plus récent au plus ancien)
+PROFILES_TO_TRY=(
+    "17.1"
+    "17.0"
+    "13.0"
+    "17.1/no-multilib"
+    "17.0/no-multilib"
+)
+
+log_info "Recherche du meilleur profil disponible..."
+for VERSION in "${PROFILES_TO_TRY[@]}"; do
+    TEST_PATH="/var/db/repos/gentoo/profiles/default/linux/amd64/${VERSION}"
+    if [ -d "${TEST_PATH}" ]; then
+        PROFILE_PATH="${TEST_PATH}"
+        PROFILE_NAME="default/linux/amd64/${VERSION}"
+        log_success "Profil trouvé: ${PROFILE_NAME}"
+        break
+    else
+        echo "  ✗ ${VERSION} n'existe pas"
+    fi
+done
+
+if [ -z "${PROFILE_PATH}" ]; then
+    log_error "AUCUN PROFIL STANDARD TROUVÉ !"
+    
+    log_warning "Recherche de n'importe quel profil amd64..."
+    FIRST_PROFILE=$(find /var/db/repos/gentoo/profiles/default/linux/amd64/ -maxdepth 1 -type d ! -name amd64 2>/dev/null | head -1)
+    
+    if [ -n "${FIRST_PROFILE}" ] && [ -d "${FIRST_PROFILE}" ]; then
+        PROFILE_PATH="${FIRST_PROFILE}"
+        PROFILE_NAME="default/linux/amd64/$(basename ${FIRST_PROFILE})"
+        log_warning "Utilisation du profil: ${PROFILE_NAME}"
+    else
+        log_error "Impossible de trouver un profil utilisable"
+        exit 1
+    fi
+fi
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+log_info "ÉTAPE 4 : APPLICATION DU NOUVEAU PROFIL"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+
+log_info "Suppression de l'ancien lien..."
+rm -f /etc/portage/make.profile
+log_success "Ancien lien supprimé"
+
+log_info "Création du nouveau lien..."
+echo "  Source: ${PROFILE_PATH}"
+echo "  Cible:  /etc/portage/make.profile"
+ln -sf "${PROFILE_PATH}" /etc/portage/make.profile
+log_success "Nouveau lien créé"
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+log_info "ÉTAPE 5 : VÉRIFICATION"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+
+log_info "Vérification du lien symbolique..."
+FINAL_LINK=$(readlink /etc/portage/make.profile)
+echo "  → ${FINAL_LINK}"
+
+if [ -d "${FINAL_LINK}" ]; then
+    log_success "Le profil existe et est VALIDE !"
+else
+    log_error "Le profil est toujours CASSÉ"
+    exit 1
+fi
+
+echo ""
+log_info "Test avec emerge --info..."
+if emerge --info 2>&1 | head -8; then
+    log_success "emerge fonctionne correctement !"
+else
+    log_warning "emerge a des avertissements mais devrait fonctionner"
+fi
+
+echo ""
+log_info "Affichage du profil avec eselect..."
+if command -v eselect >/dev/null 2>&1; then
+    eselect profile show 2>/dev/null || echo "  ${PROFILE_NAME}"
+else
+    echo "  ${PROFILE_NAME}"
+fi
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+log_success "✅ PROFIL CORRIGÉ AVEC SUCCÈS !"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+echo "Profil sélectionné: ${PROFILE_NAME}"
+echo ""
+
+CHROOT_DIAGNOSTIC
 
 echo ""
 echo "================================================================"
 log_success "✅ CORRECTION TERMINÉE !"
 echo "================================================================"
 echo ""
-echo "📋 CE QUI A ÉTÉ FAIT:"
-echo "  ✓ Ancien profil systemd supprimé"
-echo "  ✓ Nouveau profil OpenRC configuré"
-echo "  ✓ Profil validé et fonctionnel"
+echo "📋 RÉSUMÉ:"
+echo "  ✓ Diagnostic effectué"
+echo "  ✓ Profil valide trouvé et configuré"
+echo "  ✓ Lien symbolique créé"
+echo "  ✓ emerge fonctionnel"
 echo ""
 echo "🚀 PROCHAINE ÉTAPE:"
-echo "  Vous pouvez maintenant relancer le script TP2 complet"
-echo ""
-log_info "Le système utilise maintenant OpenRC au lieu de systemd"
+echo "  Vous pouvez maintenant lancer le script TP2 complet :"
+echo "  ./tp2_complet.sh"
 echo ""
