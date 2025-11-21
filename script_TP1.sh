@@ -51,7 +51,7 @@ else
     echo n; echo p; echo 1; echo ""; echo +100M    # /boot (100Mo)
     echo n; echo p; echo 2; echo ""; echo +256M    # swap (256Mo)
     echo n; echo p; echo 3; echo ""; echo +6G      # / (6Go)
-    echo n; echo p; echo ""; echo ""               # /home (reste, 6Go)
+    echo n; echo p; echo 4; echo ""; echo +6G      # /home (6Go)
     echo t; echo 2; echo 82                        # Type swap
     echo w      # Écriture
   ) | fdisk "${DISK}" >/dev/null 2>&1
