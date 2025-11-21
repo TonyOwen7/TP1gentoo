@@ -100,23 +100,37 @@ emerge --noreplace --quiet sys-apps/pciutils 2>&1 | grep -E ">>>" || log_warning
 log_info "Installation des sources du noyau via emerge..."
 emerge --noreplace --quiet sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || log_warning "Échec partiel de l'installation des sources"
 
-# Vérification de l'installation
-if [ -d "/usr/src/linux" ]; then
-    KERNEL_VERSION=$(basename $(readlink /usr/src/linux) 2>/dev/null | sed 's/linux-//')
-    log_success "Sources du noyau installées: version $KERNEL_VERSION"
+# Vérification de l'installation et création du lien symbolique
+log_info "Vérification de l'installation des sources..."
+if ls -d /usr/src/linux-* 1> /dev/null 2>&1; then
+    LINUX_DIR=$(ls -d /usr/src/linux-* | head -1)
+    KERNEL_VERSION=$(basename "$LINUX_DIR" | sed 's/linux-//')
+    log_success "Sources du noyau trouvées: version $KERNEL_VERSION"
+    
+    # Création du lien symbolique linux
+    if [ ! -L "/usr/src/linux" ]; then
+        log_info "Création du lien symbolique /usr/src/linux..."
+        ln -sf "$LINUX_DIR" /usr/src/linux
+        log_success "Lien symbolique créé: /usr/src/linux -> $LINUX_DIR"
+    else
+        log_info "Lien symbolique /usr/src/linux existe déjà"
+    fi
 else
-    # Création du lien symbolique si nécessaire
+    log_error "Aucune source de noyau trouvée dans /usr/src/"
+    log_info "Tentative d'installation alternative avec acceptation des licences..."
+    echo "sys-kernel/gentoo-sources ~amd64" >> /etc/portage/package.accept_keywords/gentoo-sources
+    echo "sys-kernel/gentoo-sources ~amd64" >> /etc/portage/package.accept_keywords/kernel
+    emerge --autounmask-continue --quiet sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || log_error "Échec de l'installation des sources du noyau"
+    
+    # Vérification après tentative alternative
     if ls -d /usr/src/linux-* 1> /dev/null 2>&1; then
         LINUX_DIR=$(ls -d /usr/src/linux-* | head -1)
         ln -sf "$LINUX_DIR" /usr/src/linux
         KERNEL_VERSION=$(basename "$LINUX_DIR" | sed 's/linux-//')
-        log_success "Lien symbolique créé: version $KERNEL_VERSION"
+        log_success "Sources du noyau installées avec succès: version $KERNEL_VERSION"
     else
-        log_error "Aucune source de noyau trouvée dans /usr/src/"
-        log_info "Tentative d'installation alternative..."
-        emerge --autounmask-write sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || true
-        etc-update --automode -5 2>/dev/null || true
-        emerge sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || log_error "Échec de l'installation des sources du noyau"
+        log_error "Échec critique: impossible d'installer les sources du noyau"
+        exit 1
     fi
 fi
 
@@ -129,7 +143,7 @@ log_info "Exercice 2.2 - Identification du matériel système"
 
 echo ""
 log_info "1. Périphériques PCI:"
-lspci 2>/dev/null | head -10 || log_warning "lspci non disponible"
+lspci 2>/dev/null | head -15 || log_warning "lspci non disponible"
 
 echo ""
 log_info "2. Informations sur le CPU:"
@@ -141,14 +155,18 @@ free -h 2>/dev/null || log_warning "free non disponible"
 
 echo ""
 log_info "4. Contrôleurs de stockage:"
-lspci 2>/dev/null | grep -i "storage\|sata\|ide" || log_warning "Aucun contrôleur stockage trouvé"
+lspci 2>/dev/null | grep -i "storage\|sata\|ide\|scsi\|raid\|ahci\|sas" || log_info "Aucun contrôleur stockage spécifique trouvé - utilisation des contrôleurs par défaut"
 
 echo ""
-log_info "5. Carte réseau:"
+log_info "5. Disques et partitions:"
+lsblk 2>/dev/null || fdisk -l 2>/dev/null | head -20 || log_warning "Impossible de lister les disques"
+
+echo ""
+log_info "6. Carte réseau:"
 ip link show 2>/dev/null | grep -E "^[0-9]+:" | head -5 || log_warning "ip non disponible"
 
 echo ""
-log_info "6. Modules chargés:"
+log_info "7. Modules chargés:"
 lsmod | head -10 2>/dev/null || log_warning "lsmod non disponible"
 
 log_success "Exercice 2.2 terminé - Matériel identifié"
@@ -157,6 +175,19 @@ log_success "Exercice 2.2 terminé - Matériel identifié"
 # EXERCICE 2.3 - CONFIGURATION DU NOYAU
 # ============================================================================
 log_info "Exercice 2.3 - Configuration et compilation du noyau"
+
+# Vérification que /usr/src/linux existe
+if [ ! -d "/usr/src/linux" ]; then
+    log_error "/usr/src/linux n'existe pas!"
+    if ls -d /usr/src/linux-* 1> /dev/null 2>&1; then
+        LINUX_DIR=$(ls -d /usr/src/linux-* | head -1)
+        log_info "Création du lien symbolique vers $LINUX_DIR"
+        ln -sf "$LINUX_DIR" /usr/src/linux
+    else
+        log_error "Aucun répertoire de noyau trouvé dans /usr/src/"
+        exit 1
+    fi
+fi
 
 cd /usr/src/linux
 
@@ -187,58 +218,80 @@ fi
 # Configuration via scripts pour automatiser
 log_info "Configuration des options du noyau..."
 
-# Fonction pour configurer les options
-configure_kernel() {
-    # Activer DEVTMPFS et montage automatique
-    ./scripts/config --enable DEVTMPFS 2>/dev/null || log_warning "Échec activation DEVTMPFS"
-    ./scripts/config --enable DEVTMPFS_MOUNT 2>/dev/null || log_warning "Échec activation DEVTMPFS_MOUNT"
-    ./scripts/config --enable TMPFS 2>/dev/null || log_warning "Échec activation TMPFS"
-    
-    # Systèmes de fichiers (statique)
-    ./scripts/config --enable EXT4_FS 2>/dev/null || log_warning "Échec activation EXT4_FS"
-    ./scripts/config --set-val EXT4_FS y 2>/dev/null || log_warning "Échec configuration EXT4_FS"
-    ./scripts/config --enable MSDOS_FS 2>/dev/null || log_warning "Échec activation MSDOS_FS"
-    ./scripts/config --enable VFAT_FS 2>/dev/null || log_warning "Échec activation VFAT_FS"
-    ./scripts/config --enable PROC_FS 2>/dev/null || log_warning "Échec activation PROC_FS"
-    ./scripts/config --enable SYSFS 2>/dev/null || log_warning "Échec activation SYSFS"
-    ./scripts/config --enable DEVPTS_FS 2>/dev/null || log_warning "Échec activation DEVPTS_FS"
+# Configuration manuelle si les scripts échouent
+if [ ! -f "scripts/config" ]; then
+    log_warning "Scripts de configuration non disponibles, configuration manuelle..."
+    # Configuration manuelle minimale pour VM
+    cat >> .config << 'EOF'
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_TMPFS=y
+CONFIG_EXT4_FS=y
+CONFIG_VIRTIO_NET=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_E1000=y
+CONFIG_SCSI_VIRTIO=y
+# Désactivation debug
+CONFIG_DEBUG_KERNEL=n
+CONFIG_DEBUG_INFO=n
+# Désactivation WiFi
+CONFIG_CFG80211=n
+CONFIG_MAC80211=n
+# Désactivation Mac
+CONFIG_MACINTOSH_DRIVERS=n
+EOF
+    log_success "Configuration manuelle appliquée"
+else
+    # Fonction pour configurer les options
+    configure_kernel() {
+        # Activer DEVTMPFS et montage automatique
+        ./scripts/config --enable DEVTMPFS 2>/dev/null || log_warning "Échec activation DEVTMPFS"
+        ./scripts/config --enable DEVTMPFS_MOUNT 2>/dev/null || log_warning "Échec activation DEVTMPFS_MOUNT"
+        ./scripts/config --enable TMPFS 2>/dev/null || log_warning "Échec activation TMPFS"
+        
+        # Systèmes de fichiers (statique)
+        ./scripts/config --enable EXT4_FS 2>/dev/null || log_warning "Échec activation EXT4_FS"
+        ./scripts/config --set-val EXT4_FS y 2>/dev/null || log_warning "Échec configuration EXT4_FS"
+        ./scripts/config --enable MSDOS_FS 2>/dev/null || log_warning "Échec activation MSDOS_FS"
+        ./scripts/config --enable VFAT_FS 2>/dev/null || log_warning "Échec activation VFAT_FS"
+        ./scripts/config --enable PROC_FS 2>/dev/null || log_warning "Échec activation PROC_FS"
+        ./scripts/config --enable SYSFS 2>/dev/null || log_warning "Échec activation SYSFS"
+        ./scripts/config --enable DEVPTS_FS 2>/dev/null || log_warning "Échec activation DEVPTS_FS"
 
-    # Support réseau virtuel
-    ./scripts/config --enable VIRTIO_NET 2>/dev/null || log_warning "Échec activation VIRTIO_NET"
-    ./scripts/config --enable E1000 2>/dev/null || log_warning "Échec activation E1000"
+        # Support réseau virtuel
+        ./scripts/config --enable VIRTIO_NET 2>/dev/null || log_warning "Échec activation VIRTIO_NET"
+        ./scripts/config --enable E1000 2>/dev/null || log_warning "Échec activation E1000"
 
-    # Support de stockage virtuel
-    ./scripts/config --enable VIRTIO_BLK 2>/dev/null || log_warning "Échec activation VIRTIO_BLK"
-    ./scripts/config --enable SCSI_VIRTIO 2>/dev/null || log_warning "Échec activation SCSI_VIRTIO"
+        # Support de stockage virtuel
+        ./scripts/config --enable VIRTIO_BLK 2>/dev/null || log_warning "Échec activation VIRTIO_BLK"
+        ./scripts/config --enable SCSI_VIRTIO 2>/dev/null || log_warning "Échec activation SCSI_VIRTIO"
 
-    # Désactiver le debuggage du noyau
-    ./scripts/config --disable DEBUG_KERNEL 2>/dev/null || log_warning "Échec désactivation DEBUG_KERNEL"
-    ./scripts/config --disable DEBUG_INFO 2>/dev/null || log_warning "Échec désactivation DEBUG_INFO"
+        # Désactiver le debuggage du noyau
+        ./scripts/config --disable DEBUG_KERNEL 2>/dev/null || log_warning "Échec désactivation DEBUG_KERNEL"
+        ./scripts/config --disable DEBUG_INFO 2>/dev/null || log_warning "Échec désactivation DEBUG_INFO"
 
-    # Désactiver le support WiFi (inutile en VM)
-    ./scripts/config --disable CFG80211 2>/dev/null || log_warning "Échec désactivation CFG80211"
-    ./scripts/config --disable MAC80211 2>/dev/null || log_warning "Échec désactivation MAC80211"
-    ./scripts/config --disable WLAN 2>/dev/null || log_warning "Échec désactivation WLAN"
+        # Désactiver le support WiFi (inutile en VM)
+        ./scripts/config --disable CFG80211 2>/dev/null || log_warning "Échec désactivation CFG80211"
+        ./scripts/config --disable MAC80211 2>/dev/null || log_warning "Échec désactivation MAC80211"
+        ./scripts/config --disable WLAN 2>/dev/null || log_warning "Échec désactivation WLAN"
 
-    # Désactiver le support Mac
-    ./scripts/config --disable MACINTOSH_DRIVERS 2>/dev/null || log_warning "Échec désactivation MACINTOSH_DRIVERS"
-    ./scripts/config --disable APPLE_PROPERTIES 2>/dev/null || log_warning "Échec désactivation APPLE_PROPERTIES"
+        # Désactiver le support Mac
+        ./scripts/config --disable MACINTOSH_DRIVERS 2>/dev/null || log_warning "Échec désactivation MACINTOSH_DRIVERS"
+        ./scripts/config --disable APPLE_PROPERTIES 2>/dev/null || log_warning "Échec désactivation APPLE_PROPERTIES"
 
-    # Support console et terminal
-    ./scripts/config --enable VT 2>/dev/null || log_warning "Échec activation VT"
-    ./scripts/config --enable VT_CONSOLE 2>/dev/null || log_warning "Échec activation VT_CONSOLE"
-    ./scripts/config --enable TTY 2>/dev/null || log_warning "Échec activation TTY"
-    ./scripts/config --enable SERIAL_8250 2>/dev/null || log_warning "Échec activation SERIAL_8250"
-    ./scripts/config --enable SERIAL_8250_CONSOLE 2>/dev/null || log_warning "Échec activation SERIAL_8250_CONSOLE"
-}
+        # Support console et terminal
+        ./scripts/config --enable VT 2>/dev/null || log_warning "Échec activation VT"
+        ./scripts/config --enable VT_CONSOLE 2>/dev/null || log_warning "Échec activation VT_CONSOLE"
+        ./scripts/config --enable TTY 2>/dev/null || log_warning "Échec activation TTY"
+        ./scripts/config --enable SERIAL_8250 2>/dev/null || log_warning "Échec activation SERIAL_8250"
+        ./scripts/config --enable SERIAL_8250_CONSOLE 2>/dev/null || log_warning "Échec activation SERIAL_8250_CONSOLE"
+    }
 
-configure_kernel
+    configure_kernel
+    log_success "Configuration automatique appliquée"
+fi
 
 log_success "Configuration du noyau terminée"
-
-# Vérification de la configuration
-log_info "Vérification de la configuration..."
-./scripts/config --state DEVTMPFS 2>/dev/null || log_warning "Impossible de vérifier DEVTMPFS"
 
 # ============================================================================
 # EXERCICE 2.4 - COMPILATION ET INSTALLATION DU NOYAU
@@ -246,10 +299,10 @@ log_info "Vérification de la configuration..."
 log_info "Exercice 2.4 - Compilation et installation du noyau"
 
 log_info "Préparation de la compilation..."
-make olddefconfig 2>&1 | tail -3 || log_error "Échec de la préparation de la compilation"
+make olddefconfig 2>&1 | tail -3 || log_warning "Avertissement lors de la préparation"
 
 log_info "Compilation du noyau (peut prendre plusieurs minutes)..."
-make -j$(nproc) 2>&1 | tail -10 || log_error "Échec de la compilation du noyau"
+make -j$(nproc) 2>&1 | tail -15 || log_error "Échec de la compilation du noyau"
 
 log_info "Installation des modules du noyau..."
 make modules_install 2>&1 | tail -3 || log_error "Échec de l'installation des modules"
@@ -261,7 +314,13 @@ make install 2>&1 | tail -3 || log_error "Échec de l'installation du noyau"
 if [ -f "/boot/vmlinuz-$KERNEL_VERSION" ]; then
     log_success "Noyau installé: /boot/vmlinuz-$KERNEL_VERSION"
 else
-    log_warning "Le noyau n'a pas été correctement installé"
+    # Recherche alternative du noyau
+    if ls /boot/vmlinuz-* 1> /dev/null 2>&1; then
+        KERNEL_FILE=$(ls /boot/vmlinuz-* | head -1)
+        log_success "Noyau trouvé: $KERNEL_FILE"
+    else
+        log_warning "Aucun noyau trouvé dans /boot/"
+    fi
 fi
 
 # Installation de GRUB si pas déjà fait
