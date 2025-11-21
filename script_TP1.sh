@@ -2,7 +2,7 @@
 # Script d'installation Gentoo complète - Exercices 1.2 à 1.9
 # Utilise systemd comme système d'init
 
-SECRET_CODE="1234"   # Code attendu
+SECRET_CODE="codesecret"   # Code attendu
 
 read -sp "🔑 Entrez le code pour exécuter ce script : " USER_CODE
 echo

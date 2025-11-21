@@ -2,7 +2,7 @@
 # TP2 - Gestion LVM - Exercices 2.12 à 2.15
 # Analyse et procédures LVM sans modification du système actuel
 
-SECRET_CODE="1234"   # Code attendu
+SECRET_CODE="codesecret"   # Code attendu
 
 read -sp "🔑 Entrez le code pour exécuter ce script : " USER_CODE
 echo

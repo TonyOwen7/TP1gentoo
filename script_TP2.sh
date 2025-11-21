@@ -2,20 +2,16 @@
 # TP2 COMPLET pour stage3-systemd avec correction automatique
 # Génère le rapport du TP
 
+SECRET_CODE="codesecret"   # Code attendu
+
+read -sp "🔑 Entrez le code pour exécuter ce script : " USER_CODE
+echo
+if [ "$USER_CODE" != "$SECRET_CODE" ]; then
+  echo "❌ Code incorrect. Exécution annulée."
+  exit 1
+fi
+
 set -euo pipefail
-
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
-log_error() { echo -e "${RED}[✗]${NC} $1"; }
 
 MOUNT_POINT="/mnt/gentoo"
 RAPPORT="/root/rapport_tp2.txt"
@@ -44,10 +40,10 @@ EOF
 # ============================================================================
 # VÉRIFICATION ET MONTAGE
 # ============================================================================
-log_info "Vérification du système..."
+echo "[INFO] Vérification du système..."
 
 if [ ! -d "${MOUNT_POINT}/etc" ]; then
-    log_info "Montage du système..."
+    echo "[INFO] Montage du système..."
     mkdir -p "${MOUNT_POINT}"
     mount /dev/sda3 "${MOUNT_POINT}"
     mkdir -p "${MOUNT_POINT}"/{boot,home}
@@ -65,59 +61,49 @@ mount --make-rslave "${MOUNT_POINT}/dev" 2>/dev/null || true
 mount --bind /run "${MOUNT_POINT}/run" 2>/dev/null || true
 cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
 
-log_success "Système monté"
+echo "[OK] Système monté"
 
 # ============================================================================
 # CORRECTION DU PROFIL ET PORTAGE
 # ============================================================================
-log_info "Correction automatique du profil et Portage..."
+echo "[INFO] Correction automatique du profil et Portage..."
 
 chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_FIX_PROFILE'
 #!/bin/bash
 set -euo pipefail
 
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[FIX]${NC} $1"; }
-log_success() { echo -e "${GREEN}[✓ FIX]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[! FIX]${NC} $1"; }
-
 source /etc/profile 2>/dev/null || true
 
 echo ""
-log_info "=== CORRECTION DU PROFIL ET PORTAGE ==="
+echo "[FIX] === CORRECTION DU PROFIL ET PORTAGE ==="
 
 # Vérifier où est Portage
 if [ ! -d "/var/db/repos/gentoo/profiles" ]; then
-    log_warning "Portage mal extrait, correction..."
+    echo "[WARNING] Portage mal extrait, correction..."
     
     # Portage a été extrait dans /usr au lieu de /var/db/repos/gentoo
     if [ -d "/usr/portage/profiles" ]; then
-        log_info "Déplacement de Portage vers le bon emplacement..."
+        echo "[FIX] Déplacement de Portage vers le bon emplacement..."
         mkdir -p /var/db/repos
         mv /usr/portage /var/db/repos/gentoo
-        log_success "Portage déplacé"
+        echo "[OK] Portage déplacé"
     elif [ -f "/portage-latest.tar.xz" ]; then
-        log_info "Extraction de portage-latest.tar.xz..."
+        echo "[FIX] Extraction de portage-latest.tar.xz..."
         mkdir -p /var/db/repos/gentoo
         tar xpf /portage-latest.tar.xz -C /var/db/repos/gentoo --strip-components=1
-        log_success "Portage extrait"
+        echo "[OK] Portage extrait"
     else
-        log_warning "Tentative de synchronisation..."
+        echo "[WARNING] Tentative de synchronisation..."
         mkdir -p /var/db/repos/gentoo
-        emerge-webrsync 2>&1 | tail -5 || log_warning "Synchronisation partielle"
+        emerge-webrsync 2>&1 | tail -5 || echo "[WARNING] Synchronisation partielle"
     fi
 fi
 
 # Correction du profil
-log_info "Configuration du profil systemd..."
+echo "[FIX] Configuration du profil systemd..."
 
 if [ ! -d "/var/db/repos/gentoo/profiles" ]; then
-    log_error "Impossible de trouver les profils"
+    echo "[ERROR] Impossible de trouver les profils"
     exit 1
 fi
 
@@ -138,23 +124,23 @@ fi
 if [ -n "${SYSTEMD_PROFILE}" ] && [ -d "${SYSTEMD_PROFILE}" ]; then
     rm -f /etc/portage/make.profile
     ln -sf "${SYSTEMD_PROFILE}" /etc/portage/make.profile
-    log_success "Profil systemd configuré: ${SYSTEMD_PROFILE}"
+    echo "[OK] Profil systemd configuré: ${SYSTEMD_PROFILE}"
 else
-    log_error "Aucun profil systemd trouvé"
+    echo "[ERROR] Aucun profil systemd trouvé"
     exit 1
 fi
 
 # Vérification
 if emerge --info >/dev/null 2>&1; then
-    log_success "emerge fonctionnel"
+    echo "[OK] emerge fonctionnel"
 else
-    log_warning "emerge a des avertissements"
+    echo "[WARNING] emerge a des avertissements"
 fi
 
 echo ""
 CHROOT_FIX_PROFILE
 
-log_success "Profil corrigé, début du TP2..."
+echo "[OK] Profil corrigé, début du TP2..."
 
 # ============================================================================
 # DÉBUT DU TP2 DANS LE CHROOT
@@ -164,16 +150,6 @@ chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_TP2'
 #!/bin/bash
 set -euo pipefail
 
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[TP2]${NC} $1"; }
-log_success() { echo -e "${GREEN}[✓ TP2]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[! TP2]${NC} $1"; }
-
 source /etc/profile
 export PS1="(chroot) \$PS1"
 
@@ -181,7 +157,7 @@ RAPPORT="/root/rapport_tp2.txt"
 
 echo ""
 echo "================================================================"
-log_info "DÉBUT DU TP2 - CONFIGURATION SYSTÈME"
+echo "[TP2] DÉBUT DU TP2 - CONFIGURATION SYSTÈME"
 echo "================================================================"
 echo ""
 
@@ -189,7 +165,7 @@ echo ""
 # EXERCICE 2.1 - SOURCES DU NOYAU
 # ============================================================================
 echo ""
-log_info "━━━ EXERCICE 2.1 - Installation des sources du noyau ━━━"
+echo "[TP2] === EXERCICE 2.1 - Installation des sources du noyau ==="
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_1'
 
@@ -208,11 +184,11 @@ COMMANDES UTILISÉES:
 
 RAPPORT_2_1
 
-log_info "Installation des sources du noyau..."
+echo "[TP2] Installation des sources du noyau..."
 if emerge --noreplace sys-kernel/gentoo-sources 2>&1 | tee -a /tmp/kernel_install.log | grep -E ">>>"; then
-    log_success "Sources installées"
+    echo "[OK] Sources installées"
 else
-    log_warning "Installation avec gestion des conflits..."
+    echo "[WARNING] Installation avec gestion des conflits..."
     emerge --autounmask-write sys-kernel/gentoo-sources 2>&1 | tail -5 || true
     etc-update --automode -5 2>/dev/null || true
     emerge sys-kernel/gentoo-sources 2>&1 | tail -5
@@ -221,10 +197,10 @@ fi
 if ls -d /usr/src/linux-* >/dev/null 2>&1; then
     KERNEL_VER=$(ls -d /usr/src/linux-* | head -1 | sed 's|/usr/src/linux-||')
     ln -sf /usr/src/linux-* /usr/src/linux 2>/dev/null || true
-    log_success "Sources installées: version ${KERNEL_VER}"
+    echo "[OK] Sources installées: version ${KERNEL_VER}"
     echo "RÉSULTAT: Sources du noyau ${KERNEL_VER} installées" >> "${RAPPORT}"
 else
-    log_error "Échec installation sources"
+    echo "[ERROR] Échec installation sources"
     echo "ERREUR: Échec de l'installation" >> "${RAPPORT}"
     exit 1
 fi
@@ -233,7 +209,7 @@ fi
 # EXERCICE 2.2 - IDENTIFICATION MATÉRIEL
 # ============================================================================
 echo ""
-log_info "━━━ EXERCICE 2.2 - Identification du matériel ━━━"
+echo "[TP2] === EXERCICE 2.2 - Identification du matériel ==="
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_2'
 
@@ -273,13 +249,13 @@ echo "" >> "${RAPPORT}"
 echo "4) Disques:" >> "${RAPPORT}"
 lsblk | tee -a "${RAPPORT}"
 
-log_success "Matériel identifié"
+echo "[OK] Matériel identifié"
 
 # ============================================================================
 # EXERCICE 2.3 - CONFIGURATION DU NOYAU
 # ============================================================================
 echo ""
-log_info "━━━ EXERCICE 2.3 - Configuration du noyau ━━━"
+echo "[TP2] === EXERCICE 2.3 - Configuration du noyau ==="
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_3'
 
@@ -306,10 +282,10 @@ emerge --noreplace sys-devel/bc sys-devel/ncurses 2>&1 | grep -E ">>>" || true
 # Configuration de base
 if [ -f "/proc/config.gz" ]; then
     zcat /proc/config.gz > .config
-    log_success "Config depuis noyau actuel"
+    echo "[OK] Config depuis noyau actuel"
 else
     make defconfig
-    log_success "Config par défaut"
+    echo "[OK] Config par défaut"
 fi
 
 make scripts 2>&1 | tail -3
@@ -327,20 +303,20 @@ if [ -f "scripts/config" ]; then
     ./scripts/config --disable CFG80211 2>/dev/null || true
     ./scripts/config --disable MAC80211 2>/dev/null || true
     ./scripts/config --disable WLAN 2>/dev/null || true
-    log_success "Options configurées"
+    echo "[OK] Options configurées"
 fi
 
 make olddefconfig 2>&1 | tail -3
 echo "    make olddefconfig" >> "${RAPPORT}"
 echo "RÉSULTAT: Noyau configuré pour VM" >> "${RAPPORT}"
 
-log_success "Noyau configuré"
+echo "[OK] Noyau configuré"
 
 # ============================================================================
 # EXERCICE 2.4 - COMPILATION ET GRUB
 # ============================================================================
 echo ""
-log_info "━━━ EXERCICE 2.4 - Compilation noyau + GRUB ━━━"
+echo "[TP2] === EXERCICE 2.4 - Compilation noyau + GRUB ==="
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_4'
 
@@ -358,13 +334,13 @@ COMMANDES:
 
 RAPPORT_2_4
 
-log_info "Compilation du noyau (patience...)..."
+echo "[TP2] Compilation du noyau (patience...)..."
 COMPILE_START=$(date +%s)
 
 if make -j2 2>&1 | tail -5; then
     COMPILE_END=$(date +%s)
     COMPILE_TIME=$((COMPILE_END - COMPILE_START))
-    log_success "Compilation: ${COMPILE_TIME}s"
+    echo "[OK] Compilation: ${COMPILE_TIME}s"
 else
     make 2>&1 | tail -5
 fi
@@ -374,10 +350,10 @@ make install 2>&1 | tail -3
 
 if ls /boot/vmlinuz-* >/dev/null 2>&1; then
     KERNEL_FILE=$(ls /boot/vmlinuz-* | head -1)
-    log_success "Noyau installé: ${KERNEL_FILE}"
+    echo "[OK] Noyau installé: ${KERNEL_FILE}"
     echo "RÉSULTAT: ${KERNEL_FILE}" >> "${RAPPORT}"
 else
-    log_error "Noyau non installé"
+    echo "[ERROR] Noyau non installé"
     exit 1
 fi
 
@@ -393,13 +369,13 @@ echo "" >> "${RAPPORT}"
 echo "GRUB configuré:" >> "${RAPPORT}"
 grep "^menuentry" /boot/grub/grub.cfg | head -3 | tee -a "${RAPPORT}"
 
-log_success "Noyau et GRUB installés"
+echo "[OK] Noyau et GRUB installés"
 
 # ============================================================================
 # EXERCICE 2.5 - CONFIGURATION SYSTÈME
 # ============================================================================
 echo ""
-log_info "━━━ EXERCICE 2.5 - Configuration système ━━━"
+echo "[TP2] === EXERCICE 2.5 - Configuration système ==="
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_5'
 
@@ -412,14 +388,14 @@ POUR SYSTEMD:
 - Installation optionnelle de syslog-ng et logrotate
 
 COMMANDES:
-    echo "root:gentoo123" | chpasswd
+    echo "root:root" | chpasswd
     emerge app-admin/syslog-ng app-admin/logrotate
     systemctl enable syslog-ng
 
 RAPPORT_2_5
 
-echo "root:gentoo123" | chpasswd
-log_success "Mot de passe root: gentoo123"
+echo "root:root" | chpasswd
+echo "[OK] Mot de passe root: root"
 
 emerge --noreplace app-admin/syslog-ng 2>&1 | grep -E ">>>" || true
 emerge --noreplace app-admin/logrotate 2>&1 | grep -E ">>>" || true
@@ -428,13 +404,13 @@ systemctl enable syslog-ng 2>/dev/null || true
 systemctl enable logrotate.timer 2>/dev/null || true
 
 echo "RÉSULTAT: Mot de passe configuré, logs avec syslog-ng" >> "${RAPPORT}"
-log_success "Configuration système terminée"
+echo "[OK] Configuration système terminée"
 
 # ============================================================================
 # EXERCICE 2.6 - VÉRIFICATIONS
 # ============================================================================
 echo ""
-log_info "━━━ EXERCICE 2.6 - Vérifications finales ━━━"
+echo "[TP2] === EXERCICE 2.6 - Vérifications finales ==="
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_6'
 
@@ -476,12 +452,12 @@ PROCÉDURE DE SORTIE (systemd):
 ✓ Exercice 2.6: Système prêt pour boot
 
 SYSTÈME: Gentoo avec systemd
-MOT DE PASSE ROOT: gentoo123
+MOT DE PASSE ROOT: root
 
 ================================================================================
 RAPPORT_FIN
 
-log_success "TP2 terminé !"
+echo "[OK] TP2 terminé !"
 
 CHROOT_TP2
 
@@ -491,12 +467,12 @@ CHROOT_TP2
 
 if [ -f "${MOUNT_POINT}/root/rapport_tp2.txt" ]; then
     cp "${MOUNT_POINT}/root/rapport_tp2.txt" /root/
-    log_success "Rapport copié: /root/rapport_tp2.txt"
+    echo "[OK] Rapport copié: /root/rapport_tp2.txt"
 fi
 
 echo ""
 echo "================================================================"
-log_success "✅ TP2 TERMINÉ AVEC SUCCÈS !"
+echo "[SUCCESS] ✅ TP2 TERMINÉ AVEC SUCCÈS !"
 echo "================================================================"
 echo ""
 echo "📋 RÉSUMÉ:"
@@ -505,11 +481,10 @@ echo "  ✓ Tous les exercices 2.1-2.6 terminés"
 echo "  ✓ Rapport généré: /root/rapport_tp2.txt"
 echo ""
 echo "🚀 POUR REDÉMARRER:"
-echo "  exit                    # Si dans un sous-shell"
 echo "  cd /"
 echo "  umount -R /mnt/gentoo"
 echo "  reboot"
 echo ""
 echo "🔑 CONNEXION:"
-echo "  root / gentoo123"
+echo "  root / root"
 echo ""
