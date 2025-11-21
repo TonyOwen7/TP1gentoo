@@ -2,6 +2,9 @@
 # TP2 - Configuration du système Gentoo
 # Exercices 2.1 à 2.6
 
+set -euo pipefail
+
+# Code de sécurité
 SECRET_CODE="1234"   # Code attendu
 
 read -sp "🔑 Entrez le code pour exécuter ce script : " USER_CODE
@@ -10,8 +13,6 @@ if [ "$USER_CODE" != "$SECRET_CODE" ]; then
   echo "❌ Code incorrect. Exécution annulée."
   exit 1
 fi
-
-set -euo pipefail
 
 # Couleurs
 RED='\033[0;31m'
@@ -68,11 +69,13 @@ set -euo pipefail
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 log_info() { echo -e "${BLUE}[CHROOT]${NC} $1"; }
 log_success() { echo -e "${GREEN}[CHROOT OK]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[CHROOT WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[CHROOT ERROR]${NC} $1"; }
 
 # Chargement du profil
 source /etc/profile
@@ -91,11 +94,11 @@ log_info "Exercice 2.1 - Installation des sources du noyau Linux"
 
 # Installation de pciutils pour lspci
 log_info "Installation de pciutils pour lspci..."
-emerge --noreplace --quiet sys-apps/pciutils 2>&1 | grep -E ">>>" || true
+emerge --noreplace --quiet sys-apps/pciutils 2>&1 | grep -E ">>>" || log_warning "Échec partiel de l'installation de pciutils"
 
 # Installation des sources du noyau avec emerge
 log_info "Installation des sources du noyau via emerge..."
-emerge --noreplace --quiet sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || true
+emerge --noreplace --quiet sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || log_warning "Échec partiel de l'installation des sources"
 
 # Vérification de l'installation
 if [ -d "/usr/src/linux" ]; then
@@ -110,7 +113,10 @@ else
         log_success "Lien symbolique créé: version $KERNEL_VERSION"
     else
         log_error "Aucune source de noyau trouvée dans /usr/src/"
-        exit 1
+        log_info "Tentative d'installation alternative..."
+        emerge --autounmask-write sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || true
+        etc-update --automode -5 2>/dev/null || true
+        emerge sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || log_error "Échec de l'installation des sources du noyau"
     fi
 fi
 
@@ -158,7 +164,7 @@ log_info "Configuration du noyau pour machine virtuelle"
 
 # Installation des outils de configuration
 log_info "Installation des outils de configuration du noyau..."
-emerge --noreplace --quiet sys-apps/pciutils sys-devel/bc 2>&1 | grep -E ">>>" || true
+emerge --noreplace --quiet sys-apps/pciutils sys-devel/bc 2>&1 | grep -E ">>>" || log_warning "Échec partiel des outils"
 
 # Méthode de configuration (nous utiliserons une configuration de base)
 log_info "Génération d'une configuration de base..."
@@ -166,7 +172,7 @@ if [ -f "/proc/config.gz" ]; then
     zcat /proc/config.gz > .config
     log_success "Configuration basée sur le noyau actuel"
 else
-    make defconfig 2>&1 | grep -v "^\s*$" || true
+    make defconfig 2>&1 | grep -v "^\s*$" || log_error "Échec de la configuration par défaut"
     log_success "Configuration par défaut générée"
 fi
 
@@ -175,7 +181,7 @@ log_info "Application des paramètres spécifiques pour machine virtuelle..."
 # Vérification que les scripts/config sont disponibles
 if [ ! -f "scripts/config" ]; then
     log_info "Préparation des scripts de configuration..."
-    make scripts 2>&1 | tail -3 || true
+    make scripts 2>&1 | tail -3 || log_error "Échec de la préparation des scripts"
 fi
 
 # Configuration via scripts pour automatiser
@@ -184,46 +190,46 @@ log_info "Configuration des options du noyau..."
 # Fonction pour configurer les options
 configure_kernel() {
     # Activer DEVTMPFS et montage automatique
-    ./scripts/config --enable DEVTMPFS 2>/dev/null || true
-    ./scripts/config --enable DEVTMPFS_MOUNT 2>/dev/null || true
-    ./scripts/config --enable TMPFS 2>/dev/null || true
+    ./scripts/config --enable DEVTMPFS 2>/dev/null || log_warning "Échec activation DEVTMPFS"
+    ./scripts/config --enable DEVTMPFS_MOUNT 2>/dev/null || log_warning "Échec activation DEVTMPFS_MOUNT"
+    ./scripts/config --enable TMPFS 2>/dev/null || log_warning "Échec activation TMPFS"
     
     # Systèmes de fichiers (statique)
-    ./scripts/config --enable EXT4_FS 2>/dev/null || true
-    ./scripts/config --set-val EXT4_FS y 2>/dev/null || true  # Compilation statique
-    ./scripts/config --enable MSDOS_FS 2>/dev/null || true
-    ./scripts/config --enable VFAT_FS 2>/dev/null || true
-    ./scripts/config --enable PROC_FS 2>/dev/null || true
-    ./scripts/config --enable SYSFS 2>/dev/null || true
-    ./scripts/config --enable DEVPTS_FS 2>/dev/null || true
+    ./scripts/config --enable EXT4_FS 2>/dev/null || log_warning "Échec activation EXT4_FS"
+    ./scripts/config --set-val EXT4_FS y 2>/dev/null || log_warning "Échec configuration EXT4_FS"
+    ./scripts/config --enable MSDOS_FS 2>/dev/null || log_warning "Échec activation MSDOS_FS"
+    ./scripts/config --enable VFAT_FS 2>/dev/null || log_warning "Échec activation VFAT_FS"
+    ./scripts/config --enable PROC_FS 2>/dev/null || log_warning "Échec activation PROC_FS"
+    ./scripts/config --enable SYSFS 2>/dev/null || log_warning "Échec activation SYSFS"
+    ./scripts/config --enable DEVPTS_FS 2>/dev/null || log_warning "Échec activation DEVPTS_FS"
 
     # Support réseau virtuel
-    ./scripts/config --enable VIRTIO_NET 2>/dev/null || true
-    ./scripts/config --enable E1000 2>/dev/null || true  # Carte réseau Intel par défaut
+    ./scripts/config --enable VIRTIO_NET 2>/dev/null || log_warning "Échec activation VIRTIO_NET"
+    ./scripts/config --enable E1000 2>/dev/null || log_warning "Échec activation E1000"
 
     # Support de stockage virtuel
-    ./scripts/config --enable VIRTIO_BLK 2>/dev/null || true
-    ./scripts/config --enable SCSI_VIRTIO 2>/dev/null || true
+    ./scripts/config --enable VIRTIO_BLK 2>/dev/null || log_warning "Échec activation VIRTIO_BLK"
+    ./scripts/config --enable SCSI_VIRTIO 2>/dev/null || log_warning "Échec activation SCSI_VIRTIO"
 
     # Désactiver le debuggage du noyau
-    ./scripts/config --disable DEBUG_KERNEL 2>/dev/null || true
-    ./scripts/config --disable DEBUG_INFO 2>/dev/null || true
+    ./scripts/config --disable DEBUG_KERNEL 2>/dev/null || log_warning "Échec désactivation DEBUG_KERNEL"
+    ./scripts/config --disable DEBUG_INFO 2>/dev/null || log_warning "Échec désactivation DEBUG_INFO"
 
     # Désactiver le support WiFi (inutile en VM)
-    ./scripts/config --disable CFG80211 2>/dev/null || true
-    ./scripts/config --disable MAC80211 2>/dev/null || true
-    ./scripts/config --disable WLAN 2>/dev/null || true
+    ./scripts/config --disable CFG80211 2>/dev/null || log_warning "Échec désactivation CFG80211"
+    ./scripts/config --disable MAC80211 2>/dev/null || log_warning "Échec désactivation MAC80211"
+    ./scripts/config --disable WLAN 2>/dev/null || log_warning "Échec désactivation WLAN"
 
     # Désactiver le support Mac
-    ./scripts/config --disable MACINTOSH_DRIVERS 2>/dev/null || true
-    ./scripts/config --disable APPLE_PROPERTIES 2>/dev/null || true
+    ./scripts/config --disable MACINTOSH_DRIVERS 2>/dev/null || log_warning "Échec désactivation MACINTOSH_DRIVERS"
+    ./scripts/config --disable APPLE_PROPERTIES 2>/dev/null || log_warning "Échec désactivation APPLE_PROPERTIES"
 
     # Support console et terminal
-    ./scripts/config --enable VT 2>/dev/null || true
-    ./scripts/config --enable VT_CONSOLE 2>/dev/null || true
-    ./scripts/config --enable TTY 2>/dev/null || true
-    ./scripts/config --enable SERIAL_8250 2>/dev/null || true
-    ./scripts/config --enable SERIAL_8250_CONSOLE 2>/dev/null || true
+    ./scripts/config --enable VT 2>/dev/null || log_warning "Échec activation VT"
+    ./scripts/config --enable VT_CONSOLE 2>/dev/null || log_warning "Échec activation VT_CONSOLE"
+    ./scripts/config --enable TTY 2>/dev/null || log_warning "Échec activation TTY"
+    ./scripts/config --enable SERIAL_8250 2>/dev/null || log_warning "Échec activation SERIAL_8250"
+    ./scripts/config --enable SERIAL_8250_CONSOLE 2>/dev/null || log_warning "Échec activation SERIAL_8250_CONSOLE"
 }
 
 configure_kernel
@@ -240,16 +246,16 @@ log_info "Vérification de la configuration..."
 log_info "Exercice 2.4 - Compilation et installation du noyau"
 
 log_info "Préparation de la compilation..."
-make olddefconfig 2>&1 | tail -3 || true
+make olddefconfig 2>&1 | tail -3 || log_error "Échec de la préparation de la compilation"
 
 log_info "Compilation du noyau (peut prendre plusieurs minutes)..."
-make -j$(nproc) 2>&1 | tail -10 || true
+make -j$(nproc) 2>&1 | tail -10 || log_error "Échec de la compilation du noyau"
 
 log_info "Installation des modules du noyau..."
-make modules_install 2>&1 | tail -3 || true
+make modules_install 2>&1 | tail -3 || log_error "Échec de l'installation des modules"
 
 log_info "Installation du noyau..."
-make install 2>&1 | tail -3 || true
+make install 2>&1 | tail -3 || log_error "Échec de l'installation du noyau"
 
 # Vérification de l'installation
 if [ -f "/boot/vmlinuz-$KERNEL_VERSION" ]; then
@@ -261,14 +267,14 @@ fi
 # Installation de GRUB si pas déjà fait
 log_info "Vérification de GRUB..."
 if ! command -v grub-install >/dev/null 2>&1; then
-    emerge --noreplace sys-boot/grub 2>&1 | grep -E ">>>" || true
+    emerge --noreplace sys-boot/grub 2>&1 | grep -E ">>>" || log_error "Échec de l'installation de GRUB"
 fi
 
 log_info "Installation de GRUB sur le disque..."
-grub-install /dev/sda 2>&1 | grep -v "Installing" || true
+grub-install /dev/sda 2>&1 | grep -v "Installing" || log_error "Échec de l'installation de GRUB sur le disque"
 
 log_info "Génération de la configuration GRUB..."
-grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | grep -E "Found|Adding" || true
+grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | grep -E "Found|Adding" || log_error "Échec de la génération de la configuration GRUB"
 
 log_info "Contenu du fichier GRUB (/boot/grub/grub.cfg):"
 echo "=========================================="
@@ -293,18 +299,18 @@ log_success "Mot de passe root changé"
 
 # Installation de syslog-ng et logrotate
 log_info "Installation de syslog-ng pour la gestion des logs..."
-emerge --noreplace app-admin/syslog-ng 2>&1 | grep -E ">>>" || true
+emerge --noreplace app-admin/syslog-ng 2>&1 | grep -E ">>>" || log_error "Échec de l'installation de syslog-ng"
 
 log_info "Installation de logrotate..."
-emerge --noreplace app-admin/logrotate 2>&1 | grep -E ">>>" || true
+emerge --noreplace app-admin/logrotate 2>&1 | grep -E ">>>" || log_error "Échec de l'installation de logrotate"
 
 # Configuration de syslog-ng
 log_info "Configuration de syslog-ng..."
-rc-update add syslog-ng default 2>/dev/null || true
+rc-update add syslog-ng default 2>/dev/null || log_warning "Échec de l'activation de syslog-ng"
 
 # Configuration de logrotate
 log_info "Activation de logrotate..."
-rc-update add logrotate default 2>/dev/null || true
+rc-update add logrotate default 2>/dev/null || log_warning "Échec de l'activation de logrotate"
 
 log_info "Création d'une configuration logrotate personnalisée..."
 cat > /etc/logrotate.conf <<'EOF'
