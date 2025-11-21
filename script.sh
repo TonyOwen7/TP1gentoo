@@ -1,278 +1,157 @@
 #!/bin/bash
-# Gentoo Installation Script - TP1 (Ex. 1.1 → 1.9)
-# Script sécurisé, robuste et intelligent
-# Version améliorée avec meilleure gestion GPG et erreurs
+# Script d'installation Gentoo - Du partitionnement à la configuration finale
+# Utilise systemd comme système d'init
 
 set -euo pipefail
 
-# Couleurs pour les messages
+# Couleurs
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Variables de configuration
+# Configuration
 DISK="/dev/sda"
-STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/20251109T170053Z/stage3-amd64-systemd-20251109T170053Z.tar.xz"
-STAGE3_SIG_URL="${STAGE3_URL}.asc"
-PORTAGE_URL="https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz"
 MOUNT_POINT="/mnt/gentoo"
+STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/20251109T170053Z/stage3-amd64-systemd-20251109T170053Z.tar.xz"
+PORTAGE_URL="https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz"
 
 echo "================================================================"
-echo "     Installation automatisée de Gentoo Linux"
+echo "     Installation Gentoo - Partitionnement à Configuration"
 echo "================================================================"
-echo ""
 
 # ============================================================================
-# PARTITIONNEMENT DU DISQUE
+# PARTITIONNEMENT
 # ============================================================================
 log_info "Partitionnement du disque ${DISK}"
 
-if lsblk "${DISK}" 2>/dev/null | grep -q "${DISK}1"; then
-  log_warning "Partitions déjà présentes - Skip du partitionnement"
-else
-  log_info "Création des partitions avec fdisk..."
-  (
-    echo o      # Nouvelle table de partitions
-    echo n; echo p; echo 1; echo ""; echo +100M    # /boot
-    echo n; echo p; echo 2; echo ""; echo +256M    # swap
-    echo n; echo p; echo 3; echo ""; echo +6G      # /
-    echo n; echo p; echo 4; echo ""; echo ""       # /home (reste)
-    echo t; echo 2; echo 82                        # Type swap
-    echo w      # Écriture
-  ) | fdisk "${DISK}" >/dev/null 2>&1
-  
-  # Attendre que le kernel détecte les nouvelles partitions
-  sleep 2
-  partprobe "${DISK}" 2>/dev/null || true
-  log_success "Partitions créées"
-fi
+(
+  echo o      # Nouvelle table de partitions
+  echo n; echo p; echo 1; echo ""; echo +100M    # /boot
+  echo n; echo p; echo 2; echo ""; echo +256M    # swap
+  echo n; echo p; echo 3; echo ""; echo +6G      # /
+  echo n; echo e; echo 4; echo ""; echo ""       # /home (étendue)
+  echo t; echo 2; echo 82                        # Type swap
+  echo w
+) | fdisk "${DISK}" >/dev/null 2>&1
+
+sleep 2
+partprobe "${DISK}" 2>/dev/null || true
+log_success "Partitions créées"
 
 # ============================================================================
-# FORMATAGE DES PARTITIONS
+# FORMATAGE
 # ============================================================================
 log_info "Formatage des partitions avec labels"
 
-mkfs.ext2 -F -L boot "${DISK}1" >/dev/null 2>&1 || true
-log_success "Partition /boot formatée (ext2)"
+mkfs.ext2 -F -L boot "${DISK}1" >/dev/null 2>&1
+log_success "/boot formaté (ext2)"
 
-mkfs.ext4 -F -L root "${DISK}3" >/dev/null 2>&1 || true
-log_success "Partition / formatée (ext4)"
+mkswap -L swap "${DISK}2" >/dev/null 2>&1
+log_success "Swap créé"
 
-mkfs.ext4 -F -L home "${DISK}4" >/dev/null 2>&1 || true
-log_success "Partition /home formatée (ext4)"
+mkfs.ext4 -F -L root "${DISK}3" >/dev/null 2>&1
+log_success "/ formaté (ext4)"
 
-# ============================================================================
-# CONFIGURATION ET ACTIVATION DU SWAP
-# ============================================================================
-log_info "Configuration du swap"
-
-SWAP_DEVICE=$(blkid -L swap 2>/dev/null || echo "")
-
-if [ -z "$SWAP_DEVICE" ]; then
-  log_info "Formatage de ${DISK}2 en swap"
-  mkswap -L swap "${DISK}2" >/dev/null 2>&1
-  SWAP_DEVICE="${DISK}2"
-  log_success "Swap formaté avec label 'swap'"
-fi
-
-if swapon --show | grep -q "$SWAP_DEVICE"; then
-  log_success "Swap déjà actif sur $SWAP_DEVICE"
-else
-  swapon "$SWAP_DEVICE"
-  log_success "Swap activé sur $SWAP_DEVICE"
-fi
+mkfs.ext4 -F -L home "${DISK}4" >/dev/null 2>&1
+log_success "/home formaté (ext4)"
 
 # ============================================================================
-# MONTAGE DES PARTITIONS
+# MONTAGE
 # ============================================================================
 log_info "Montage des partitions"
 
 mkdir -p "${MOUNT_POINT}"
-mount "${DISK}3" "${MOUNT_POINT}" 2>/dev/null || log_warning "/ déjà monté"
-log_success "/ monté sur ${MOUNT_POINT}"
-
-mkdir -p "${MOUNT_POINT}/boot"
-mount "${DISK}1" "${MOUNT_POINT}/boot" 2>/dev/null || log_warning "/boot déjà monté"
-log_success "/boot monté"
-
-mkdir -p "${MOUNT_POINT}/home"
-mount "${DISK}4" "${MOUNT_POINT}/home" 2>/dev/null || log_warning "/home déjà monté"
-log_success "/home monté"
+mount "${DISK}3" "${MOUNT_POINT}"
+mkdir -p "${MOUNT_POINT}/boot" "${MOUNT_POINT}/home"
+mount "${DISK}1" "${MOUNT_POINT}/boot"
+mount "${DISK}4" "${MOUNT_POINT}/home"
+swapon "${DISK}2"
+log_success "Toutes les partitions montées"
 
 # ============================================================================
-# CRÉATION DU FSTAB
+# TÉLÉCHARGEMENT ET EXTRACTION
 # ============================================================================
-log_info "Génération de /etc/fstab"
-
-mkdir -p "${MOUNT_POINT}/etc"
-cat > "${MOUNT_POINT}/etc/fstab" <<'EOF'
-# <fs>         <mountpoint>  <type>  <opts>              <dump/pass>
-LABEL=root     /             ext4    defaults,noatime    0 1
-LABEL=boot     /boot         ext2    defaults            0 2
-LABEL=home     /home         ext4    defaults,noatime    0 2
-LABEL=swap     none          swap    sw                  0 0
-EOF
-
-log_success "fstab créé"
-
-# ============================================================================
-# SYNCHRONISATION DE L'HORLOGE
-# ============================================================================
-log_info "Synchronisation de l'horloge système"
-
-if command -v ntpd >/dev/null 2>&1; then
-  ntpd -q -g 2>/dev/null || log_warning "NTP non disponible"
-elif command -v chronyd >/dev/null 2>&1; then
-  chronyd -q 2>/dev/null || log_warning "Chrony non disponible"
-else
-  log_warning "Pas de client NTP disponible - utilisation de date HTTP"
-  date -s "$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)" 2>/dev/null || \
-    log_warning "Impossible de synchroniser l'heure via HTTP"
-fi
-
-log_success "Horloge système configurée"
-
-# ============================================================================
-# TÉLÉCHARGEMENT DU STAGE3
-# ============================================================================
-log_info "Téléchargement du stage3 et de sa signature"
-
+log_info "Téléchargement du Stage3"
 cd "${MOUNT_POINT}"
+wget --quiet --show-progress "${STAGE3_URL}"
+log_success "Stage3 téléchargé"
 
-if [ ! -f "stage3-amd64-systemd-20251109T170053Z.tar.xz" ]; then
-  wget --quiet --show-progress "${STAGE3_URL}" || {
-    log_error "Échec du téléchargement du stage3"
-    exit 1
-  }
-  log_success "Stage3 téléchargé"
-else
-  log_warning "Stage3 déjà présent"
-fi
+log_info "Extraction du Stage3"
+tar xpf stage3-*.tar.xz --xattrs-include='*.*' --numeric-owner
+log_success "Stage3 extrait"
 
-if [ ! -f "stage3-amd64-systemd-20251109T170053Z.tar.xz.asc" ]; then
-  wget --quiet --show-progress "${STAGE3_SIG_URL}" || {
-    log_error "Échec du téléchargement de la signature"
-    exit 1
-  }
-  log_success "Signature téléchargée"
-else
-  log_warning "Signature déjà présente"
-fi
+log_info "Téléchargement de Portage"
+cd "${MOUNT_POINT}"
+wget --quiet --show-progress "${PORTAGE_URL}"
+log_success "Portage téléchargé"
+
+log_info "Extraction de Portage dans /usr"
+tar xpf portage-latest.tar.xz -C "${MOUNT_POINT}/usr"
+rm -f portage-latest.tar.xz
+log_success "Portage installé dans /usr"
 
 # ============================================================================
-# CONFIGURATION GPG ET VÉRIFICATION
+# CONFIGURATION make.conf
 # ============================================================================
-log_info "Configuration de GPG pour la vérification"
+log_info "Configuration de make.conf"
 
-# Configuration GPG pour éviter les problèmes de rafraîchissement
-mkdir -p ~/.gnupg
-chmod 700 ~/.gnupg
-cat > ~/.gnupg/gpg.conf <<'EOF'
-keyserver-options no-auto-key-retrieve
-no-auto-key-locate
+cat >> "${MOUNT_POINT}/etc/portage/make.conf" <<'EOF'
+
+# Configuration optimisée
+COMMON_FLAGS="-O2 -pipe -march=native"
+CFLAGS="${COMMON_FLAGS}"
+CXXFLAGS="${COMMON_FLAGS}"
+MAKEOPTS="-j$(nproc)"
+EMERGE_DEFAULT_OPTS="--jobs=$(nproc)"
+GENTOO_MIRRORS="https://mirror.init7.net/gentoo/"
+USE="systemd"
 EOF
 
-# Importation de la clé Gentoo
-log_info "Importation de la clé de signature Gentoo"
-if [ -f "/usr/share/openpgp-keys/gentoo-release.asc" ]; then
-  gpg --import /usr/share/openpgp-keys/gentoo-release.asc 2>&1 | grep -v "refreshing\|keyserver" || true
-  log_success "Clé Gentoo importée"
-else
-  log_warning "Clé Gentoo non trouvée dans /usr/share/openpgp-keys/"
-  log_info "Téléchargement manuel de la clé..."
-  wget -qO- https://qa-reports.gentoo.org/output/service-keys.gpg | gpg --import 2>&1 | grep -v "refreshing" || true
-fi
-
-# Vérification de la signature
-log_info "Vérification GPG de l'archive stage3"
-if gpg --verify stage3-amd64-systemd-20251109T170053Z.tar.xz.asc stage3-amd64-systemd-20251109T170053Z.tar.xz 2>&1 | grep -q "Good signature"; then
-  log_success "✓ Signature GPG valide"
-else
-  log_warning "La vérification GPG a échoué ou n'a pas pu être complétée"
-  echo -n "Continuer quand même ? (y/N) "
-  read -r response
-  if [[ ! "$response" =~ ^[Yy]$ ]]; then
-    log_error "Installation annulée par l'utilisateur"
-    exit 1
-  fi
-fi
+log_success "make.conf configuré"
 
 # ============================================================================
-# EXTRACTION DU STAGE3
+# PRÉPARATION CHROOT
 # ============================================================================
-log_info "Extraction du stage3 (cela peut prendre quelques minutes)..."
+log_info "Préparation du chroot"
 
-tar xpf stage3-amd64-systemd-20251109T170053Z.tar.xz --xattrs-include='*.*' --numeric-owner
-log_success "Stage3 extrait avec succès"
-
-# ============================================================================
-# TÉLÉCHARGEMENT ET INSTALLATION DE PORTAGE
-# ============================================================================
-log_info "Téléchargement de l'arbre Portage"
-
-mkdir -p "${MOUNT_POINT}/var/db/repos/gentoo"
-cd "${MOUNT_POINT}/var/db/repos/gentoo"
-
-if [ ! -f "portage-latest.tar.xz" ]; then
-  wget --quiet --show-progress "${PORTAGE_URL}" || {
-    log_error "Échec du téléchargement de Portage"
-    exit 1
-  }
-  log_success "Portage téléchargé"
-else
-  log_warning "Portage déjà présent"
-fi
-
-log_info "Extraction de Portage..."
-tar xpf portage-latest.tar.xz
-rm -f portage-latest.tar.xz
-log_success "Portage installé"
-
-# ============================================================================
-# PRÉPARATION DU CHROOT
-# ============================================================================
-log_info "Préparation de l'environnement chroot"
-
-mount -t proc /proc "${MOUNT_POINT}/proc" 2>/dev/null || true
-mount --rbind /sys "${MOUNT_POINT}/sys" 2>/dev/null || true
-mount --make-rslave "${MOUNT_POINT}/sys" 2>/dev/null || true
-mount --rbind /dev "${MOUNT_POINT}/dev" 2>/dev/null || true
-mount --make-rslave "${MOUNT_POINT}/dev" 2>/dev/null || true
-
-# Copie des informations DNS
-cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
+cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/"
+mount -t proc /proc "${MOUNT_POINT}/proc"
+mount --rbind /sys "${MOUNT_POINT}/sys"
+mount --make-rslave "${MOUNT_POINT}/sys"
+mount --rbind /dev "${MOUNT_POINT}/dev"
+mount --make-rslave "${MOUNT_POINT}/dev"
+mount --bind /run "${MOUNT_POINT}/run"
+mount --make-slave "${MOUNT_POINT}/run"
 
 log_success "Environnement chroot prêt"
 
 # ============================================================================
-# ENTRÉE DANS LE CHROOT ET CONFIGURATION
+# CONFIGURATION DANS LE CHROOT
 # ============================================================================
-log_info "Entrée dans l'environnement chroot pour la configuration"
+log_info "Entrée dans le chroot pour la configuration"
 
-chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_CMDS'
+chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_EOF'
 #!/bin/bash
 set -euo pipefail
 
-# Couleurs
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
-
 log_info() { echo -e "${BLUE}[CHROOT]${NC} $1"; }
-log_success() { echo -e "${GREEN}[CHROOT OK]${NC} $1"; }
+log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 
-# Chargement du profil
 source /etc/profile
 export PS1="(chroot) \$PS1"
 
-log_info "Configuration du dépôt Gentoo"
+# Configuration du dépôt
+log_info "Configuration des dépôts"
 mkdir -p /etc/portage/repos.conf
 cat > /etc/portage/repos.conf/gentoo.conf <<'EOF'
 [gentoo]
@@ -280,229 +159,120 @@ location = /var/db/repos/gentoo
 sync-type = rsync
 sync-uri = rsync://rsync.gentoo.org/gentoo-portage
 auto-sync = yes
-sync-rsync-verify-jobs = 1
-sync-rsync-verify-metamanifest = yes
-sync-rsync-extra-opts = --exclude=/metadata/timestamp.chk
 EOF
-log_success "Configuration du dépôt terminée"
 
-# Synchronisation (utilise le snapshot déjà extrait)
-log_info "Mise à jour des métadonnées de Portage..."
-if command -v emerge-webrsync >/dev/null 2>&1; then
-  emerge-webrsync 2>&1 | grep -v "Fetching" || true
-else
-  log_info "emerge-webrsync non disponible - skip"
-fi
+# Sélection du profil systemd
+log_info "Sélection du profil systemd"
+eselect profile list | grep systemd
+PROFILE=$(eselect profile list | grep "systemd" | grep "stable" | head -1 | awk '{print $2}' | tr -d '[]')
+eselect profile set ${PROFILE}
+log_success "Profil systemd sélectionné"
 
-# Configuration du clavier
-log_info "Configuration du clavier français"
-echo 'keymap="fr-latin1"' > /etc/conf.d/keymaps
-log_success "Clavier configuré en français"
+# Configuration timezone
+log_info "Configuration du fuseau horaire"
+echo "Europe/Paris" > /etc/timezone
+emerge --config sys-libs/timezone-data
 
-# Configuration des locales
+# Configuration locales
 log_info "Configuration des locales"
 cat > /etc/locale.gen <<'EOF'
 en_US.UTF-8 UTF-8
 fr_FR.UTF-8 UTF-8
 EOF
-locale-gen >/dev/null 2>&1
-eselect locale set fr_FR.utf8 >/dev/null 2>&1
-env-update >/dev/null 2>&1
-source /etc/profile
-log_success "Locales configurées (fr_FR.UTF-8)"
+locale-gen
+eselect locale set fr_FR.utf8
+env-update && source /etc/profile
+log_success "Locales configurées"
 
-# Configuration du hostname
-log_info "Configuration du nom d'hôte"
+# Hostname
+log_info "Configuration du hostname"
 echo "gentoo" > /etc/hostname
-log_success "Hostname défini à 'gentoo'"
 
-# Configuration du fuseau horaire
-log_info "Configuration du fuseau horaire"
-ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
-echo "Europe/Paris" > /etc/timezone
-log_success "Fuseau horaire : Europe/Paris"
+# Configuration réseau pour systemd
+log_info "Configuration du réseau (systemd-networkd)"
+cat > /etc/systemd/network/50-dhcp.network <<'EOF'
+[Match]
+Name=en*
 
-# Configuration réseau
-log_info "Configuration du réseau (DHCP)"
-cat > /etc/conf.d/net <<'EOF'
-config_eth0="dhcp"
+[Network]
+DHCP=yes
 EOF
 
-cd /etc/init.d
-ln -sf net.lo net.eth0 2>/dev/null || true
-rc-update add net.eth0 default 2>/dev/null || log_info "Service réseau déjà ajouté"
-log_success "Réseau configuré (DHCP sur eth0)"
+systemctl enable systemd-networkd
+systemctl enable systemd-resolved
+log_success "Réseau configuré"
 
-# Installation de dhcpcd
-log_info "Installation de dhcpcd (client DHCP)"
-if ! command -v dhcpcd >/dev/null 2>&1; then
-  emerge --noreplace --quiet dhcpcd 2>&1 | grep -E ">>>|Emerging" || true
-  log_success "dhcpcd installé"
-else
-  log_success "dhcpcd déjà présent"
-fi
+# Mise à jour du système
+log_info "Mise à jour du système (peut prendre du temps)"
+emerge-webrsync
+emerge --update --deep --newuse @world
 
-# Installation de htop
-log_info "Installation de htop (monitoring système)"
-if ! command -v htop >/dev/null 2>&1; then
-  emerge --noreplace --quiet htop 2>&1 | grep -E ">>>|Emerging" || true
-  log_success "htop installé"
-else
-  log_success "htop déjà présent"
-fi
+# Installation du noyau
+log_info "Installation du noyau (binaire pour gagner du temps)"
+emerge sys-kernel/gentoo-kernel-bin
+log_success "Noyau installé"
 
-log_success "=== Configuration de base terminée avec succès ==="
-
-# ============================================================================
-# INSTALLATION ET CONFIGURATION DU NOYAU
-# ============================================================================
-log_info "Installation des sources du noyau Linux"
-
-# Installation de gentoo-sources
-emerge --noreplace --quiet sys-kernel/gentoo-sources 2>&1 | grep -E ">>>|Emerging" || true
-log_success "Sources du noyau installées"
-
-# Installation de genkernel pour automatiser la compilation
-log_info "Installation de genkernel (peut prendre du temps)"
-emerge --noreplace --quiet sys-kernel/genkernel 2>&1 | grep -E ">>>|Emerging" || true
-log_success "genkernel installé"
-
-# Compilation du noyau avec genkernel
-log_info "Compilation du noyau (cette étape peut prendre 15-30 minutes)..."
-genkernel all 2>&1 | grep -E ">>|kernel|initramfs" || true
-log_success "Noyau compilé et installé"
-
-# ============================================================================
-# INSTALLATION DE FIRMWARE (pour le matériel)
-# ============================================================================
-log_info "Installation des firmwares système"
-emerge --noreplace --quiet sys-kernel/linux-firmware 2>&1 | grep -E ">>>|Emerging" || true
-log_success "Firmwares installés"
-
-# ============================================================================
-# INSTALLATION ET CONFIGURATION DE GRUB
-# ============================================================================
-log_info "Installation de GRUB (bootloader)"
+# Configuration fstab
+log_info "Configuration de /etc/fstab"
+cat > /etc/fstab <<'EOF'
+# <fs>          <mountpoint>    <type>  <opts>          <dump/pass>
+LABEL=boot      /boot           ext2    defaults        0 2
+LABEL=root      /               ext4    defaults        0 1
+LABEL=home      /home           ext4    defaults        0 2
+LABEL=swap      none            swap    sw              0 0
+EOF
+log_success "fstab configuré"
 
 # Installation de GRUB
-emerge --noreplace --quiet sys-boot/grub 2>&1 | grep -E ">>>|Emerging" || true
-log_success "GRUB installé"
+log_info "Installation de GRUB"
+emerge sys-boot/grub
+grub-install /dev/sda
+grub-mkconfig -o /boot/grub/grub.cfg
+log_success "GRUB installé et configuré"
 
-# Installation de GRUB sur le disque
-log_info "Installation de GRUB sur /dev/sda"
-grub-install /dev/sda 2>&1 | grep -v "Installing" || true
-log_success "GRUB installé sur le disque"
-
-# Génération de la configuration GRUB
-log_info "Génération de la configuration GRUB"
-grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | grep -E "Found|Adding" || true
-log_success "Configuration GRUB générée"
-
-# ============================================================================
-# CONFIGURATION DU MOT DE PASSE ROOT
-# ============================================================================
+# Mot de passe root
 log_info "Configuration du mot de passe root"
-echo "root:gentoo" | chpasswd
-log_success "Mot de passe root défini (par défaut: 'gentoo')"
-echo ""
-echo "⚠️  IMPORTANT: Changez le mot de passe root après le premier démarrage!"
+echo "root:root" | chpasswd
+log_success "Mot de passe root défini (mot de passe: root)"
 
-# ============================================================================
-# CRÉATION D'UN UTILISATEUR
-# ============================================================================
-log_info "Création de l'utilisateur 'student'"
-useradd -m -G users,wheel,audio,video -s /bin/bash student 2>/dev/null || log_info "Utilisateur déjà existant"
+# Création utilisateur
+log_info "Création de l'utilisateur student"
+useradd -m -G users,wheel,audio,video -s /bin/bash student
 echo "student:student" | chpasswd
-log_success "Utilisateur 'student' créé (mot de passe: 'student')"
 
-# Installation de sudo pour l'utilisateur
-log_info "Installation de sudo"
-emerge --noreplace --quiet app-admin/sudo 2>&1 | grep -E ">>>|Emerging" || true
-
-# Configuration de sudo pour le groupe wheel
+# Installation de sudo
+emerge app-admin/sudo
 sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-log_success "sudo configuré pour le groupe wheel"
+log_success "Utilisateur student créé et sudo configuré"
 
-# ============================================================================
-# CONFIGURATION SYSTÈME FINALE
-# ============================================================================
-log_info "Configuration des services système"
+# Outils de base
+log_info "Installation d'outils de base"
+emerge net-misc/dhcpcd sys-process/htop
 
-# Activation des services essentiels pour systemd
-systemctl enable systemd-networkd 2>/dev/null || true
-systemctl enable systemd-resolved 2>/dev/null || true
-
-log_success "Services système configurés"
-
-# ============================================================================
-# NETTOYAGE
-# ============================================================================
-log_info "Nettoyage des fichiers temporaires"
-rm -f /stage3-*.tar.xz* 2>/dev/null || true
-log_success "Nettoyage effectué"
-
-# ============================================================================
-# RÉSUMÉ FINAL
-# ============================================================================
 echo ""
 echo "================================================================"
-log_success "🎉 Installation COMPLÈTE de Gentoo terminée !"
+log_success "Configuration terminée avec succès !"
 echo "================================================================"
 echo ""
-echo "📋 Résumé de l'installation :"
-echo "  ✓ Partitions créées et montées"
-echo "  ✓ Stage3 installé et vérifié"
-echo "  ✓ Portage configuré"
-echo "  ✓ Système de base configuré (locale, timezone, réseau)"
-echo "  ✓ Noyau Linux compilé et installé"
-echo "  ✓ GRUB installé et configuré"
-echo "  ✓ Utilisateurs créés"
-echo "  ✓ Outils installés: htop, dhcpcd, sudo"
-echo ""
-echo "👤 Comptes créés :"
-echo "  - root (mot de passe: gentoo)"
+echo "Système configuré avec systemd"
+echo "Comptes créés :"
+echo "  - root (mot de passe: root)"
 echo "  - student (mot de passe: student)"
 echo ""
-echo "🔄 Pour démarrer le système :"
-echo "  1. Sortir du chroot: exit"
-echo "  2. Démonter les partitions: umount -R ${MOUNT_POINT}"
-echo "  3. Redémarrer: reboot"
-echo "  4. Retirer le LiveCD"
-echo ""
-echo "⚠️  N'OUBLIEZ PAS après le premier démarrage :"
-echo "  - Changer le mot de passe root: passwd"
-echo "  - Changer le mot de passe student: passwd student"
-echo ""
 
-CHROOT_CMDS
+CHROOT_EOF
 
 # ============================================================================
-# FIN DE L'INSTALLATION - INSTRUCTIONS FINALES
+# FIN
 # ============================================================================
 echo ""
 echo "================================================================"
-log_success "Installation automatisée terminée avec succès !"
+log_success "Installation complète !"
 echo "================================================================"
 echo ""
-echo "Le système Gentoo est maintenant complètement installé et prêt à démarrer."
+echo "Pour terminer :"
+echo "  1. Sortez du script"
+echo "  2. Démontez: umount -R ${MOUNT_POINT}"
+echo "  3. Redémarrez: reboot"
 echo ""
-echo "🚀 Prochaines étapes :"
-echo ""
-echo "1. Sortir du script actuel"
-echo ""
-echo "2. Démonter proprement les systèmes de fichiers :"
-echo "   cd /"
-echo "   umount -l ${MOUNT_POINT}/dev{/shm,/pts,}"
-echo "   umount -R ${MOUNT_POINT}"
-echo ""
-echo "3. Redémarrer la machine :"
-echo "   reboot"
-echo ""
-echo "4. Au démarrage, connectez-vous avec :"
-echo "   - Utilisateur: root ou student"
-echo "   - Mot de passe: gentoo ou student"
-echo ""
-echo "5. Après le premier démarrage, changez les mots de passe !"
-echo ""
-log_success "Bonne utilisation de votre nouveau système Gentoo ! 🐧"
-echo ""
+log_success "Votre système Gentoo est prêt !"
