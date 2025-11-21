@@ -89,6 +89,10 @@ echo ""
 # ============================================================================
 log_info "Exercice 2.1 - Installation des sources du noyau Linux"
 
+# Installation de pciutils pour lspci
+log_info "Installation de pciutils pour lspci..."
+emerge --noreplace --quiet sys-apps/pciutils 2>&1 | grep -E ">>>" || true
+
 # Installation des sources du noyau avec emerge
 log_info "Installation des sources du noyau via emerge..."
 emerge --noreplace --quiet sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || true
@@ -98,7 +102,16 @@ if [ -d "/usr/src/linux" ]; then
     KERNEL_VERSION=$(basename $(readlink /usr/src/linux) 2>/dev/null | sed 's/linux-//')
     log_success "Sources du noyau installées: version $KERNEL_VERSION"
 else
-    log_warning "Les sources du noyau ne semblent pas être correctement installées"
+    # Création du lien symbolique si nécessaire
+    if ls -d /usr/src/linux-* 1> /dev/null 2>&1; then
+        LINUX_DIR=$(ls -d /usr/src/linux-* | head -1)
+        ln -sf "$LINUX_DIR" /usr/src/linux
+        KERNEL_VERSION=$(basename "$LINUX_DIR" | sed 's/linux-//')
+        log_success "Lien symbolique créé: version $KERNEL_VERSION"
+    else
+        log_error "Aucune source de noyau trouvée dans /usr/src/"
+        exit 1
+    fi
 fi
 
 log_success "Exercice 2.1 terminé - Sources du noyau installées"
@@ -114,7 +127,7 @@ lspci 2>/dev/null | head -10 || log_warning "lspci non disponible"
 
 echo ""
 log_info "2. Informations sur le CPU:"
-cat /proc/cpuinfo | grep "model name" | head -1 || log_warning "Impossible de lire /proc/cpuinfo"
+cat /proc/cpuinfo | grep "model name" | head -1 2>/dev/null || log_warning "Impossible de lire /proc/cpuinfo"
 
 echo ""
 log_info "3. Mémoire RAM:"
@@ -122,11 +135,15 @@ free -h 2>/dev/null || log_warning "free non disponible"
 
 echo ""
 log_info "4. Contrôleurs de stockage:"
-lspci | grep -i "storage\|sata\|ide" 2>/dev/null || log_warning "Aucun contrôleur stockage trouvé"
+lspci 2>/dev/null | grep -i "storage\|sata\|ide" || log_warning "Aucun contrôleur stockage trouvé"
 
 echo ""
 log_info "5. Carte réseau:"
 ip link show 2>/dev/null | grep -E "^[0-9]+:" | head -5 || log_warning "ip non disponible"
+
+echo ""
+log_info "6. Modules chargés:"
+lsmod | head -10 2>/dev/null || log_warning "lsmod non disponible"
 
 log_success "Exercice 2.2 terminé - Matériel identifié"
 
@@ -139,73 +156,107 @@ cd /usr/src/linux
 
 log_info "Configuration du noyau pour machine virtuelle"
 
+# Installation des outils de configuration
+log_info "Installation des outils de configuration du noyau..."
+emerge --noreplace --quiet sys-apps/pciutils sys-devel/bc 2>&1 | grep -E ">>>" || true
+
 # Méthode de configuration (nous utiliserons une configuration de base)
 log_info "Génération d'une configuration de base..."
-make defconfig 2>&1 | grep -v "^\s*$" || true
+if [ -f "/proc/config.gz" ]; then
+    zcat /proc/config.gz > .config
+    log_success "Configuration basée sur le noyau actuel"
+else
+    make defconfig 2>&1 | grep -v "^\s*$" || true
+    log_success "Configuration par défaut générée"
+fi
 
 log_info "Application des paramètres spécifiques pour machine virtuelle..."
+
+# Vérification que les scripts/config sont disponibles
+if [ ! -f "scripts/config" ]; then
+    log_info "Préparation des scripts de configuration..."
+    make scripts 2>&1 | tail -3 || true
+fi
 
 # Configuration via scripts pour automatiser
 log_info "Configuration des options du noyau..."
 
-# Activer DEVTMPFS et montage automatique
-./scripts/config --enable DEVTMPFS
-./scripts/config --enable DEVTMPFS_MOUNT
-./scripts/config --enable TMPFS
-./scripts/config --enable TMPFS_POSIX_ACL
+# Fonction pour configurer les options
+configure_kernel() {
+    # Activer DEVTMPFS et montage automatique
+    ./scripts/config --enable DEVTMPFS 2>/dev/null || true
+    ./scripts/config --enable DEVTMPFS_MOUNT 2>/dev/null || true
+    ./scripts/config --enable TMPFS 2>/dev/null || true
+    
+    # Systèmes de fichiers (statique)
+    ./scripts/config --enable EXT4_FS 2>/dev/null || true
+    ./scripts/config --set-val EXT4_FS y 2>/dev/null || true  # Compilation statique
+    ./scripts/config --enable MSDOS_FS 2>/dev/null || true
+    ./scripts/config --enable VFAT_FS 2>/dev/null || true
+    ./scripts/config --enable PROC_FS 2>/dev/null || true
+    ./scripts/config --enable SYSFS 2>/dev/null || true
+    ./scripts/config --enable DEVPTS_FS 2>/dev/null || true
 
-# Systèmes de fichiers (statique)
-./scripts/config --enable EXT4_FS
-./scripts/config --set-str EXT4_FS "y"  # Compilation statique
-./scripts/config --enable MSDOS_FS
-./scripts/config --enable VFAT_FS
-./scripts/config --enable PROC_FS
-./scripts/config --enable SYSFS
-./scripts/config --enable DEVPTS_FS
+    # Support réseau virtuel
+    ./scripts/config --enable VIRTIO_NET 2>/dev/null || true
+    ./scripts/config --enable E1000 2>/dev/null || true  # Carte réseau Intel par défaut
 
-# Support réseau virtuel
-./scripts/config --enable VIRTIO_NET
-./scripts/config --enable E1000  # Carte réseau Intel par défaut
+    # Support de stockage virtuel
+    ./scripts/config --enable VIRTIO_BLK 2>/dev/null || true
+    ./scripts/config --enable SCSI_VIRTIO 2>/dev/null || true
 
-# Support de stockage virtuel
-./scripts/config --enable VIRTIO_BLK
-./scripts/config --enable SCSI_VIRTIO
+    # Désactiver le debuggage du noyau
+    ./scripts/config --disable DEBUG_KERNEL 2>/dev/null || true
+    ./scripts/config --disable DEBUG_INFO 2>/dev/null || true
 
-# Désactiver le debuggage du noyau
-./scripts/config --disable DEBUG_KERNEL
-./scripts/config --disable DEBUG_INFO
+    # Désactiver le support WiFi (inutile en VM)
+    ./scripts/config --disable CFG80211 2>/dev/null || true
+    ./scripts/config --disable MAC80211 2>/dev/null || true
+    ./scripts/config --disable WLAN 2>/dev/null || true
 
-# Désactiver le support WiFi (inutile en VM)
-./scripts/config --disable CFG80211
-./scripts/config --disable MAC80211
-./scripts/config --disable WLAN
+    # Désactiver le support Mac
+    ./scripts/config --disable MACINTOSH_DRIVERS 2>/dev/null || true
+    ./scripts/config --disable APPLE_PROPERTIES 2>/dev/null || true
 
-# Désactiver le support Mac
-./scripts/config --disable MACINTOSH_DRIVERS
-./scripts/config --disable APPLE_PROPERTIES
+    # Support console et terminal
+    ./scripts/config --enable VT 2>/dev/null || true
+    ./scripts/config --enable VT_CONSOLE 2>/dev/null || true
+    ./scripts/config --enable TTY 2>/dev/null || true
+    ./scripts/config --enable SERIAL_8250 2>/dev/null || true
+    ./scripts/config --enable SERIAL_8250_CONSOLE 2>/dev/null || true
+}
 
-# Support console et terminal
-./scripts/config --enable VT
-./scripts/config --enable VT_CONSOLE
-./scripts/config --enable TTY
-./scripts/config --enable SERIAL_8250
-./scripts/config --enable SERIAL_8250_CONSOLE
+configure_kernel
 
 log_success "Configuration du noyau terminée"
+
+# Vérification de la configuration
+log_info "Vérification de la configuration..."
+./scripts/config --state DEVTMPFS 2>/dev/null || log_warning "Impossible de vérifier DEVTMPFS"
 
 # ============================================================================
 # EXERCICE 2.4 - COMPILATION ET INSTALLATION DU NOYAU
 # ============================================================================
 log_info "Exercice 2.4 - Compilation et installation du noyau"
 
+log_info "Préparation de la compilation..."
+make olddefconfig 2>&1 | tail -3 || true
+
 log_info "Compilation du noyau (peut prendre plusieurs minutes)..."
-make -j$(nproc) 2>&1 | tail -5 || true
+make -j$(nproc) 2>&1 | tail -10 || true
 
 log_info "Installation des modules du noyau..."
 make modules_install 2>&1 | tail -3 || true
 
 log_info "Installation du noyau..."
 make install 2>&1 | tail -3 || true
+
+# Vérification de l'installation
+if [ -f "/boot/vmlinuz-$KERNEL_VERSION" ]; then
+    log_success "Noyau installé: /boot/vmlinuz-$KERNEL_VERSION"
+else
+    log_warning "Le noyau n'a pas été correctement installé"
+fi
 
 # Installation de GRUB si pas déjà fait
 log_info "Vérification de GRUB..."
@@ -221,7 +272,11 @@ grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | grep -E "Found|Adding" || true
 
 log_info "Contenu du fichier GRUB (/boot/grub/grub.cfg):"
 echo "=========================================="
-head -50 /boot/grub/grub.cfg 2>/dev/null | grep -E "^menuentry|^linux|^initrd" || log_warning "Impossible de lire grub.cfg"
+if [ -f "/boot/grub/grub.cfg" ]; then
+    grep -E "^menuentry|^linux|^initrd" /boot/grub/grub.cfg | head -10 || true
+else
+    log_warning "Fichier GRUB non trouvé"
+fi
 echo "=========================================="
 
 log_success "Exercice 2.4 terminé - Noyau compilé et installé"
@@ -291,7 +346,7 @@ echo "  • Gestion des logs avec syslog-ng et logrotate"
 echo ""
 echo "⚠️  INFORMATIONS IMPORTANTES:"
 echo "  • Mot de passe root: newpassword123"
-echo "  • Noyau compilé: $(basename $(readlink /usr/src/linux) 2>/dev/null)"
+echo "  • Noyau compilé: $KERNEL_VERSION"
 echo "  • Fichier GRUB: /boot/grub/grub.cfg"
 echo ""
 
