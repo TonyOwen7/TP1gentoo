@@ -1,5 +1,17 @@
 #!/bin/bash
-# Script de récupération intelligent - Gentoo non démarré
+# TP2 - Configuration du système Gentoo - Exercices 2.1 à 2.6
+# À exécuter APRÈS le TP1, sans démonter les partitions
+
+SECRET_CODE="1234"   # Code attendu
+
+read -sp "🔑 Entrez le code pour exécuter ce script : " USER_CODE
+echo
+if [ "$USER_CODE" != "$SECRET_CODE" ]; then
+  echo "❌ Code incorrect. Exécution annulée."
+  exit 1
+fi
+
+echo "✅ Code correct, poursuite du TP2..."
 
 set -euo pipefail
 
@@ -15,161 +27,43 @@ log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Configuration
+DISK="/dev/sda"
+MOUNT_POINT="/mnt/gentoo"
+
 echo "================================================================"
-echo "           RÉCUPÉRATION INTELLIGENTE GENTOO"
+echo "     TP2 - Configuration du système Gentoo - Exercices 2.1-2.6"
+echo "     À exécuter APRÈS le TP1 sans démonter"
 echo "================================================================"
 echo ""
 
 # ============================================================================
-# ÉTAPE 1 - DIAGNOSTIC DU SYSTÈME
+# VÉRIFICATION QUE LE SYSTÈME EST MONTÉ
 # ============================================================================
-log_info "Étape 1 - Diagnostic du système..."
+log_info "Vérification que le système Gentoo est monté..."
 
-DISK="/dev/sda"
-MOUNT_POINT="/mnt/gentoo"
-REINSTALL_NEEDED=false
-
-# Vérification des partitions
-log_info "Vérification des partitions..."
-if fdisk -l "${DISK}" 2>/dev/null | grep -q "${DISK}[1-4]"; then
-    log_success "Partitions Gentoo détectées"
+if [ ! -d "${MOUNT_POINT}/etc" ]; then
+    log_error "Le système Gentoo n'est pas monté sur ${MOUNT_POINT}"
+    log_info "Montage du système..."
     
-    # Vérification du contenu des partitions
-    if blkid "${DISK}3" | grep -q "TYPE=\"ext4\""; then
-        log_info "Partition root détectée et formatée"
-        
-        # Test de montage
-        if mount "${DISK}3" "${MOUNT_POINT}" 2>/dev/null; then
-            log_success "Partition root montable"
-            
-            # Vérification du contenu système
-            if [ -f "${MOUNT_POINT}/etc/gentoo-release" ] || [ -d "${MOUNT_POINT}/usr" ] || [ -d "${MOUNT_POINT}/etc/portage" ]; then
-                log_success "Système Gentoo détecté sur ${DISK}3"
-                umount "${MOUNT_POINT}"
-            else
-                log_warning "Partition root vide ou corrompue"
-                REINSTALL_NEEDED=true
-                umount "${MOUNT_POINT}"
-            fi
-        else
-            log_error "Partition root corrompue ou système de fichiers endommagé"
-            REINSTALL_NEEDED=true
-        fi
-    else
-        log_warning "Partition root non formatée"
-        REINSTALL_NEEDED=true
-    fi
-else
-    log_error "Aucune partition Gentoo trouvée"
-    REINSTALL_NEEDED=true
-fi
-
-# ============================================================================
-# ÉTAPE 2 - RÉINSTALLATION SEULEMENT SI NÉCESSAIRE
-# ============================================================================
-if [ "$REINSTALL_NEEDED" = true ]; then
-    log_info "Réinstallation nécessaire..."
-    
-    # Création des partitions si manquantes
-    if ! fdisk -l "${DISK}" 2>/dev/null | grep -q "${DISK}[1-4]"; then
-        log_info "Création des partitions..."
-        
-        # Création d'une table de partitions (MBR)
-        parted -s "${DISK}" mklabel msdos 2>/dev/null || true
-        
-        # Création des partitions
-        parted -s "${DISK}" mkpart primary ext2 1MiB 101MiB 2>/dev/null || true
-        parted -s "${DISK}" mkpart primary linux-swap 101MiB 357MiB 2>/dev/null || true
-        parted -s "${DISK}" mkpart primary ext4 357MiB 6GiB 2>/dev/null || true
-        parted -s "${DISK}" mkpart primary ext4 6GiB 100% 2>/dev/null || true
-        
-        # Définition du boot flag
-        parted -s "${DISK}" set 1 boot on 2>/dev/null || true
-        
-        log_success "Partitions créées"
-        sleep 2
-    fi
-
-    # Formatage des partitions si nécessaire
-    log_info "Formatage des partitions si nécessaire..."
-    
-    if ! blkid "${DISK}1" | grep -q "TYPE=\"ext2\""; then
-        log_info "Formatage de ${DISK}1 (boot)..."
-        mkfs.ext2 -F -L "boot" "${DISK}1" 2>/dev/null || true
-    fi
-
-    if ! blkid "${DISK}2" | grep -q "TYPE=\"swap\""; then
-        log_info "Formatage de ${DISK}2 (swap)..."
-        mkswap -L "swap" "${DISK}2" 2>/dev/null || true
-    fi
-
-    if ! blkid "${DISK}3" | grep -q "TYPE=\"ext4\""; then
-        log_info "Formatage de ${DISK}3 (root)..."
-        mkfs.ext4 -F -L "root" "${DISK}3" 2>/dev/null || true
-    fi
-
-    if ! blkid "${DISK}4" | grep -q "TYPE=\"ext4\""; then
-        log_info "Formatage de ${DISK}4 (home)..."
-        mkfs.ext4 -F -L "home" "${DISK}4" 2>/dev/null || true
-    fi
-
-    # Téléchargement et installation du stage3 seulement si nécessaire
-    log_info "Installation du système de base..."
+    # Montage des partitions
     mkdir -p "${MOUNT_POINT}"
     mount "${DISK}3" "${MOUNT_POINT}" || {
         log_error "Impossible de monter ${DISK}3"
         exit 1
     }
-
-    # Vérification si le système est déjà installé
-    if [ ! -f "${MOUNT_POINT}/etc/gentoo-release" ] && [ ! -d "${MOUNT_POINT}/usr" ]; then
-        log_info "Téléchargement du stage3..."
-        STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/20251109T170053Z/stage3-amd64-systemd-20251109T170053Z.tar.xz"
-        
-        cd "${MOUNT_POINT}"
-        wget --quiet --show-progress "${STAGE3_URL}" -O stage3-latest.tar.xz || {
-            log_warning "Échec téléchargement, utilisation de miroir alternatif..."
-            wget --quiet --show-progress "https://mirror.init7.net/gentoo/releases/amd64/autobuilds/20251109T170053Z/stage3-amd64-systemd-20251109T170053Z.tar.xz" -O stage3-latest.tar.xz || true
-        }
-
-        if [ -f "stage3-latest.tar.xz" ]; then
-            log_info "Extraction du stage3..."
-            tar xpf stage3-latest.tar.xz --xattrs-include='*.*' --numeric-owner
-            rm -f stage3-latest.tar.xz
-            log_success "Stage3 installé"
-        else
-            log_error "Impossible de télécharger le stage3"
-            exit 1
-        fi
-    else
-        log_success "Système déjà présent, pas de réinstallation nécessaire"
-    fi
-
-else
-    log_success "Système intact, pas de réinstallation nécessaire"
     
-    # Montage simple pour réparation
-    mkdir -p "${MOUNT_POINT}"
-    mount "${DISK}3" "${MOUNT_POINT}" || {
-        log_error "Impossible de monter ${DISK}3"
-        exit 1
-    }
+    mkdir -p "${MOUNT_POINT}/boot"
+    mount "${DISK}1" "${MOUNT_POINT}/boot" 2>/dev/null || log_warning "Impossible de monter /boot"
+    
+    mkdir -p "${MOUNT_POINT}/home"
+    mount "${DISK}4" "${MOUNT_POINT}/home" 2>/dev/null || log_warning "Impossible de monter /home"
+    
+    swapon "${DISK}2" 2>/dev/null || log_warning "Impossible d'activer le swap"
 fi
 
-# ============================================================================
-# ÉTAPE 3 - MONTAGE DU SYSTÈME POUR RÉPARATION
-# ============================================================================
-log_info "Montage du système complet..."
-
-mkdir -p "${MOUNT_POINT}/boot"
-mount "${DISK}1" "${MOUNT_POINT}/boot" 2>/dev/null || log_warning "Impossible de monter /boot"
-
-mkdir -p "${MOUNT_POINT}/home" 
-mount "${DISK}4" "${MOUNT_POINT}/home" 2>/dev/null || log_warning "Impossible de monter /home"
-
-swapon "${DISK}2" 2>/dev/null || log_warning "Impossible d'activer le swap"
-
-# Montage des systèmes virtuels
+# Montage des systèmes de fichiers virtuels
+log_info "Montage des systèmes de fichiers virtuels..."
 mount -t proc /proc "${MOUNT_POINT}/proc" 2>/dev/null || true
 mount --rbind /sys "${MOUNT_POINT}/sys" 2>/dev/null || true
 mount --make-rslave "${MOUNT_POINT}/sys" 2>/dev/null || true
@@ -181,10 +75,12 @@ mount --make-slave "${MOUNT_POINT}/run" 2>/dev/null || true
 # Copie de resolv.conf
 cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
 
+log_success "Système Gentoo prêt pour le TP2"
+
 # ============================================================================
-# ÉTAPE 4 - RÉPARATION INTELLIGENTE DANS LE CHROOT
+# EXERCICE 2.1 - INSTALLATION DES SOURCES DU NOYAU
 # ============================================================================
-log_info "Réparation du système dans le chroot..."
+log_info "Exercice 2.1 - Installation des sources du noyau Linux"
 
 chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_EOF'
 #!/bin/bash
@@ -207,263 +103,289 @@ export PS1="(chroot) \$PS1"
 
 echo ""
 echo "================================================================"
-log_info "RÉPARATION INTELLIGENTE DU SYSTÈME"
+log_info "Début du TP2 - Configuration du système"
 echo "================================================================"
 echo ""
 
-# ============================================================================
-# DIAGNOSTIC DU SYSTÈME
-# ============================================================================
-log_info "Diagnostic du système..."
-
-# Vérification du noyau
-KERNEL_INSTALLED=false
-if ls /boot/vmlinuz-* >/dev/null 2>&1; then
-    log_success "Noyau présent: $(ls /boot/vmlinuz-* | head -1)"
-    KERNEL_INSTALLED=true
-else
-    log_warning "Aucun noyau détecté"
-fi
-
-# Vérification de GRUB
-GRUB_INSTALLED=false
-if command -v grub-install >/dev/null 2>&1; then
-    log_success "GRUB installé"
-    GRUB_INSTALLED=true
-else
-    log_warning "GRUB non installé"
-fi
-
-# Vérification de la configuration GRUB
-GRUB_CONFIGURED=false
-if [ -f "/boot/grub/grub.cfg" ]; then
-    if grep -q "menuentry" /boot/grub/grub.cfg; then
-        log_success "Configuration GRUB présente"
-        GRUB_CONFIGURED=true
-    else
-        log_warning "Configuration GRUB vide ou invalide"
-    fi
-else
-    log_warning "Fichier de configuration GRUB manquant"
-fi
-
-# Vérification du fstab
-FSTAB_OK=false
-if [ -f "/etc/fstab" ]; then
-    if grep -q "/dev/sda3" /etc/fstab || grep -q "LABEL=root" /etc/fstab; then
-        log_success "fstab semble correct"
-        FSTAB_OK=true
-    else
-        log_warning "fstab peut être incorrect"
-    fi
-else
-    log_warning "fstab manquant"
-fi
-
-# ============================================================================
-# EXERCICE 2.1 - INSTALLATION NOYAU SEULEMENT SI BESOIN
-# ============================================================================
-if [ "$KERNEL_INSTALLED" = false ]; then
-    log_info "Exercice 2.1 - Installation du noyau (nécessaire)..."
-    
-    # Installation noyau binaire (rapide)
-    emerge --noreplace sys-kernel/gentoo-kernel-bin 2>&1 | grep -E ">>>" | head -3 || {
-        log_warning "Installation échouée, tentative alternative..."
-        emerge --autounmask-continue sys-kernel/gentoo-kernel-bin 2>&1 | head -3 || true
-    }
-    
-    if ls /boot/vmlinuz-* >/dev/null 2>&1; then
-        log_success "Noyau installé: $(ls /boot/vmlinuz-* | head -1)"
-    else
-        log_error "Échec installation noyau"
-    fi
-else
-    log_success "Exercice 2.1 - Noyau déjà présent"
-fi
-
-# ============================================================================
-# EXERCICE 2.2 - IDENTIFICATION MATÉRIEL
-# ============================================================================
-log_info "Exercice 2.2 - Identification matériel..."
-echo "Architecture: $(uname -m)"
-echo "CPU: $(grep -m1 "model name" /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//' || echo 'Inconnu')"
-log_success "Matériel identifié"
-
-# ============================================================================
-# EXERCICE 2.3 - CONFIGURATION NOYAU (VÉRIFICATION)
-# ============================================================================
-log_info "Exercice 2.3 - Vérification configuration noyau..."
-if [ "$KERNEL_INSTALLED" = true ]; then
-    log_success "Noyau présent (configuration supposée OK pour VM)"
-else
-    log_warning "Pas de noyau à configurer"
-fi
-
-# ============================================================================
-# EXERCICE 2.4 - INSTALLATION GRUB SEULEMENT SI BESOIN
-# ============================================================================
-if [ "$GRUB_INSTALLED" = false ] || [ "$GRUB_CONFIGURED" = false ]; then
-    log_info "Exercice 2.4 - Installation/configuration GRUB (nécessaire)..."
-    
-    # Installation GRUB
-    if ! command -v grub-install >/dev/null 2>&1; then
-        emerge --noreplace sys-boot/grub 2>&1 | grep -E ">>>" | head -2 || log_warning "GRUB non installé"
-    fi
-    
-    # Installation sur le disque
-    if command -v grub-install >/dev/null 2>&1; then
-        grub-install /dev/sda 2>&1 | grep -v "Installing" || log_error "Échec installation GRUB"
-    fi
-    
-    # Génération configuration
-    if command -v grub-mkconfig >/dev/null 2>&1; then
-        grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | grep -E "Found linux|Adding boot" || {
-            log_warning "Génération automatique échouée, création manuelle..."
-            cat > /boot/grub/grub.cfg << 'GRUB_EOF'
-set timeout=5
-set default=0
-
-menuentry "Gentoo Linux" {
-    insmod ext2
-    set root=(hd0,msdos1)
-    linux /boot/vmlinuz-* root=/dev/sda3 ro quiet
-    initrd /boot/initramfs-*
+# Installation des sources du noyau
+log_info "Installation des sources du noyau Linux..."
+emerge --noreplace sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" || {
+    log_warning "Installation échouée, tentative avec autounmask..."
+    emerge --autounmask-write sys-kernel/gentoo-sources 2>&1 | head -3 || true
+    etc-update --automode -5 2>/dev/null || true
+    emerge sys-kernel/gentoo-sources 2>&1 | grep -E ">>>" | head -3 || true
 }
-GRUB_EOF
-        }
-        log_success "GRUB configuré"
-    fi
+
+# Vérification de l'installation
+if ls -d /usr/src/linux-* >/dev/null 2>&1; then
+    LINUX_DIR=$(ls -d /usr/src/linux-* | head -1)
+    KERNEL_VERSION=$(basename "$LINUX_DIR" | sed 's/linux-//')
+    ln -sf "$LINUX_DIR" /usr/src/linux 2>/dev/null || true
+    log_success "Sources du noyau installées: version $KERNEL_VERSION"
 else
-    log_success "Exercice 2.4 - GRUB déjà installé et configuré"
+    log_error "Échec de l'installation des sources du noyau"
+    exit 1
 fi
+
+log_success "Exercice 2.1 terminé - Sources du noyau installées"
+
+# ============================================================================
+# EXERCICE 2.2 - IDENTIFICATION DU MATÉRIEL
+# ============================================================================
+log_info "Exercice 2.2 - Identification du matériel système"
+
+echo ""
+log_info "1. Périphériques PCI:"
+if command -v lspci >/dev/null 2>&1; then
+    lspci 2>/dev/null | head -10
+else
+    log_info "Installation de pciutils..."
+    emerge --noreplace sys-apps/pciutils 2>&1 | grep -E ">>>" | head -2 || true
+    lspci 2>/dev/null | head -10 || log_warning "lspci non disponible"
+fi
+
+echo ""
+log_info "2. Processeur:"
+grep -m1 "model name" /proc/cpuinfo 2>/dev/null || log_warning "Info CPU non disponible"
+
+echo ""
+log_info "3. Mémoire:"
+free -h 2>/dev/null || grep -E "MemTotal|MemFree" /proc/meminfo 2>/dev/null | head -2
+
+echo ""
+log_info "4. Contrôleurs de stockage:"
+lspci 2>/dev/null | grep -i "storage\|sata\|ide\|scsi" || log_info "Utilisation des contrôleurs par défaut"
+
+echo ""
+log_info "5. Carte réseau:"
+ip link show 2>/dev/null | grep -E "^[0-9]+:" | head -5 || log_warning "ip non disponible"
+
+log_success "Exercice 2.2 terminé - Matériel identifié"
+
+# ============================================================================
+# EXERCICE 2.3 - CONFIGURATION DU NOYAU
+# ============================================================================
+log_info "Exercice 2.3 - Configuration du noyau pour machine virtuelle"
+
+cd /usr/src/linux
+
+# Installation des outils de configuration
+log_info "Installation des outils de configuration..."
+emerge --noreplace sys-devel/bc sys-devel/ncurses 2>&1 | grep -E ">>>" | head -2 || true
+
+# Configuration de base
+log_info "Génération de la configuration de base..."
+if [ -f "/proc/config.gz" ]; then
+    zcat /proc/config.gz > .config
+    log_success "Configuration basée sur le noyau actuel"
+else
+    make defconfig 2>&1 | tail -5
+    log_success "Configuration par défaut générée"
+fi
+
+# Configuration pour machine virtuelle
+log_info "Application des paramètres pour VM..."
+
+# Préparation des scripts de configuration
+make scripts 2>&1 | tail -3 || true
+
+# Configuration via scripts (si disponibles)
+if [ -f "scripts/config" ]; then
+    log_info "Configuration des options du noyau..."
+    
+    # Activer DEVTMPFS et systèmes de fichiers
+    ./scripts/config --enable DEVTMPFS 2>/dev/null || true
+    ./scripts/config --enable DEVTMPFS_MOUNT 2>/dev/null || true
+    ./scripts/config --set-val EXT4_FS y 2>/dev/null || true
+    
+    # Support VM
+    ./scripts/config --enable VIRTIO_NET 2>/dev/null || true
+    ./scripts/config --enable VIRTIO_BLK 2>/dev/null || true
+    ./scripts/config --enable E1000 2>/dev/null || true
+    
+    # Désactiver debug et options inutiles
+    ./scripts/config --disable DEBUG_KERNEL 2>/dev/null || true
+    ./scripts/config --disable DEBUG_INFO 2>/dev/null || true
+    ./scripts/config --disable CFG80211 2>/dev/null || true
+    ./scripts/config --disable MAC80211 2>/dev/null || true
+    ./scripts/config --disable WLAN 2>/dev/null || true
+    ./scripts/config --disable MACINTOSH_DRIVERS 2>/dev/null || true
+    
+    log_success "Configuration automatique appliquée"
+else
+    # Configuration manuelle
+    log_info "Configuration manuelle des options..."
+    cat >> .config << 'EOF'
+# Configuration pour machine virtuelle
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_EXT4_FS=y
+CONFIG_VIRTIO_NET=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_E1000=y
+CONFIG_SCSI_VIRTIO=y
+# Désactivations
+CONFIG_DEBUG_KERNEL=n
+CONFIG_DEBUG_INFO=n
+CONFIG_CFG80211=n
+CONFIG_MAC80211=n
+CONFIG_WLAN=n
+CONFIG_MACINTOSH_DRIVERS=n
+EOF
+    log_success "Configuration manuelle appliquée"
+fi
+
+# Application de la configuration
+log_info "Application de la configuration..."
+make olddefconfig 2>&1 | tail -3
+
+log_success "Exercice 2.3 terminé - Noyau configuré"
+
+# ============================================================================
+# EXERCICE 2.4 - COMPILATION ET INSTALLATION DU NOYAU
+# ============================================================================
+log_info "Exercice 2.4 - Compilation et installation du noyau"
+
+log_info "Compilation du noyau (peut prendre du temps)..."
+make -j2 2>&1 | tail -10 || {
+    log_warning "Compilation avec -j2 échouée, tentative avec un seul thread..."
+    make 2>&1 | tail -10
+}
+
+log_info "Installation des modules..."
+make modules_install 2>&1 | tail -3
+
+log_info "Installation du noyau..."
+make install 2>&1 | tail -3
+
+# Vérification
+if ls /boot/vmlinuz-* >/dev/null 2>&1; then
+    log_success "Noyau compilé et installé: $(ls /boot/vmlinuz-* | head -1)"
+else
+    log_error "Aucun noyau installé"
+    exit 1
+fi
+
+# Installation de GRUB si nécessaire
+log_info "Vérification de GRUB..."
+if ! command -v grub-install >/dev/null 2>&1; then
+    log_info "Installation de GRUB..."
+    emerge --noreplace sys-boot/grub 2>&1 | grep -E ">>>" | head -2
+fi
+
+log_info "Installation de GRUB sur le disque..."
+grub-install /dev/sda 2>&1 | grep -v "Installing" || log_error "Échec installation GRUB"
+
+log_info "Génération de la configuration GRUB..."
+grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | grep -E "Found linux|Adding boot" || {
+    log_warning "Génération automatique échouée"
+}
+
+log_info "Contenu du fichier GRUB:"
+echo "=========================================="
+grep -E "^menuentry|^linux|^initrd" /boot/grub/grub.cfg 2>/dev/null | head -10 || log_warning "Impossible de lire grub.cfg"
+echo "=========================================="
+
+log_success "Exercice 2.4 terminé - Noyau et bootloader installés"
 
 # ============================================================================
 # EXERCICE 2.5 - CONFIGURATION SYSTÈME
 # ============================================================================
-log_info "Exercice 2.5 - Configuration système..."
+log_info "Exercice 2.5 - Configuration système avancée"
 
-# Vérification/création fstab
-if [ "$FSTAB_OK" = false ]; then
-    log_info "Configuration fstab..."
-    cat > /etc/fstab << 'FSTAB_EOF'
-# /etc/fstab: static file system information.
-#
-# <file system> <mount point>   <type>  <options>       <dump>  <pass>
-/dev/sda1       /boot           ext2    defaults        0       2
-/dev/sda3       /               ext4    defaults,noatime        0       1
-/dev/sda4       /home           ext4    defaults,noatime        0       2
-/dev/sda2       none            swap    sw              0       0
-FSTAB_EOF
-    log_success "fstab configuré"
-fi
+# Changement du mot de passe root
+log_info "Changement du mot de passe root..."
+echo "root:gentoo123" | chpasswd
+log_success "Mot de passe root changé: gentoo123"
 
-# Mot de passe root
-log_info "Configuration mot de passe root..."
-if ! grep -q "root:\*" /etc/shadow 2>/dev/null; then
-    echo "root:gentoo" | chpasswd 2>/dev/null && log_success "Mot de passe root: gentoo"
+# Installation des outils de gestion des logs
+log_info "Installation de syslog-ng..."
+emerge --noreplace app-admin/syslog-ng 2>&1 | grep -E ">>>" | head -2 || log_warning "syslog-ng non installé"
+
+log_info "Installation de logrotate..."
+emerge --noreplace app-admin/logrotate 2>&1 | grep -E ">>>" | head -2 || log_warning "logrotate non installé"
+
+# Activation des services
+log_info "Activation des services..."
+if command -v rc-update >/dev/null 2>&1; then
+    rc-update add syslog-ng default 2>/dev/null || true
+    rc-update add logrotate default 2>/dev/null || true
+    log_success "Services activés"
 else
-    log_success "Mot de passe root déjà configuré"
+    systemctl enable syslog-ng 2>/dev/null || true
+    systemctl enable logrotate 2>/dev/null || true
+    log_success "Services systemd activés"
 fi
 
-# Configuration réseau
-if [ ! -f "/etc/systemd/network/50-dhcp.network" ]; then
-    log_info "Configuration réseau..."
-    mkdir -p /etc/systemd/network
-    cat > /etc/systemd/network/50-dhcp.network << 'NETWORK_EOF'
-[Match]
-Name=en*
-
-[Network]
-DHCP=yes
-NETWORK_EOF
-    log_success "Réseau configuré (DHCP)"
-fi
-
-# Hostname
-if [ ! -f "/etc/hostname" ] || [ ! -s "/etc/hostname" ]; then
-    echo "gentoo-repare" > /etc/hostname
-    log_success "Hostname configuré"
-fi
-
-log_success "Exercice 2.5 terminé"
+log_success "Exercice 2.5 terminé - Système configuré"
 
 # ============================================================================
-# EXERCICE 2.6 - PRÉPARATION REDÉMARRAGE
+# EXERCICE 2.6 - PRÉPARATION POUR REDÉMARRAGE
 # ============================================================================
-log_info "Exercice 2.6 - Préparation redémarrage..."
+log_info "Exercice 2.6 - Préparation pour redémarrage"
 
 log_info "Vérifications finales:"
-echo "✓ Noyau: $(ls /boot/vmlinuz-* 2>/dev/null | head -1 || echo 'NON TROUVÉ')"
+echo "✓ Noyau: $(ls /boot/vmlinuz-* 2>/dev/null | head -1)"
 echo "✓ GRUB: $(command -v grub-install >/dev/null 2>&1 && echo 'INSTALLÉ' || echo 'ABSENT')"
-echo "✓ fstab: $( [ -f /etc/fstab ] && echo 'PRÉSENT' || echo 'ABSENT' )"
+echo "✓ Services: syslog-ng et logrotate"
 echo "✓ Mot de passe root: CONFIGURÉ"
 
 log_success "Système prêt pour le redémarrage"
 
 # ============================================================================
-# RAPPORT FINAL
+# RÉSUMÉ DU TP2
 # ============================================================================
 echo ""
 echo "================================================================"
-log_success "✅ RÉPARATION TERMINÉE AVEC SUCCÈS !"
+log_success "🎉 TP2 - CONFIGURATION DU SYSTÈME TERMINÉE !"
 echo "================================================================"
 echo ""
-echo "📊 RAPPORT:"
-echo "  • Réinstallation: $([ '$REINSTALL_NEEDED' = true ] && echo 'OUI' || echo 'NON')"
-echo "  • Noyau: $([ '$KERNEL_INSTALLED' = true ] && echo 'PRÉSENT' || echo 'INSTALLÉ')"
-echo "  • GRUB: $([ '$GRUB_INSTALLED' = true ] && echo 'CONFIGURÉ' || echo 'INSTALLÉ')"
-echo "  • fstab: $([ '$FSTAB_OK' = true ] && echo 'OK' || echo 'CORRIGÉ')"
+echo "📋 RÉCAPITULATIF DES EXERCICES:"
+echo "  ✓ Ex 2.1: Sources du noyau installées"
+echo "  ✓ Ex 2.2: Matériel identifié"
+echo "  ✓ Ex 2.3: Noyau configuré pour VM"
+echo "  ✓ Ex 2.4: Noyau compilé et GRUB installé"
+echo "  ✓ Ex 2.5: Mot de passe root + logs configurés"
+echo "  ✓ Ex 2.6: Système prêt pour redémarrage"
 echo ""
-echo "🚀 POUR REDÉMARRER:"
-echo "   exit"
-echo "   umount -R /mnt/gentoo"
-echo "   reboot"
+echo "🔧 CONFIGURATION APPLIQUÉE:"
+echo "  • Noyau customisé pour machine virtuelle"
+echo "  • DEVTMPFS activé"
+echo "  • Debug noyau désactivé"
+echo "  • WiFi et Mac désactivés"
+echo "  • GRUB configuré"
+echo "  • Gestion des logs avec syslog-ng et logrotate"
 echo ""
-echo "🔑 CONNEXION: root / gentoo"
+echo "⚠️  IMPORTANT: NE DÉMONTEZ PAS LES PARTITIONS!"
+echo "   Le système reste monté pour la suite des TP."
 echo ""
 
 CHROOT_EOF
 
 # ============================================================================
-# ÉTAPE 5 - NETTOYAGE INTELLIGENT
-# ============================================================================
-log_info "Nettoyage..."
-
-log_info "Démontage des systèmes virtuels..."
-umount -l "${MOUNT_POINT}/dev"{/shm,/pts,} 2>/dev/null || true
-umount -l "${MOUNT_POINT}/proc" 2>/dev/null || true
-umount -l "${MOUNT_POINT}/sys" 2>/dev/null || true
-umount -l "${MOUNT_POINT}/run" 2>/dev/null || true
-
-log_info "Démontage des partitions..."
-umount -R "${MOUNT_POINT}" 2>/dev/null || {
-    log_warning "Forçage démontage..."
-    umount -l "${MOUNT_POINT}" 2>/dev/null || true
-}
-
-swapoff "${DISK}2" 2>/dev/null || true
-
-log_success "Nettoyage terminé"
-
-# ============================================================================
-# INSTRUCTIONS FINALES
+# FIN DU TP2 - SYSTÈME TOUJOURS MONTÉ
 # ============================================================================
 echo ""
 echo "================================================================"
-log_success "🎯 RÉCUPÉRATION INTELLIGENTE TERMINÉE !"
+log_success "✅ TP2 TERMINÉ AVEC SUCCÈS !"
 echo "================================================================"
 echo ""
-echo "💡 CE QUI A ÉTÉ FAIT:"
-echo "   • Diagnostic complet du système"
-echo "   • Réinstallation SEULEMENT si nécessaire"
-echo "   • Réparation des composants manquants"
-echo "   • Configuration minimale pour boot"
+echo "🎯 ÉTAT ACTUEL:"
+echo "   • Système Gentoo COMPLÈTEMENT configuré"
+echo "   • Partitions TOUJOURS MONTÉES"
+echo "   • Prêt pour le redémarrage ou les TP suivants"
 echo ""
-echo "📋 PROCÉDURE:"
-echo "   1. exit (sortir du script)"
-echo "   2. umount -R /mnt/gentoo (si pas fait)"
-echo "   3. reboot"
-echo "   4. Se connecter: root / gentoo"
+echo "🚀 POUR REDÉMARRER MAINTENANT:"
+echo "   cd /"
+echo "   reboot"
 echo ""
-log_success "Votre système Gentoo devrait maintenant fonctionner ! 🐧"
+echo "📝 POUR CONTINUER SANS REDÉMARRER:"
+echo "   Le système reste monté sur /mnt/gentoo"
+echo "   Vous pouvez exécuter d'autres scripts directement"
+echo ""
+echo "🔑 INFORMATIONS DE CONNEXION:"
+echo "   • Utilisateur: root"
+echo "   • Mot de passe: gentoo123"
+echo ""
+log_success "Votre Gentoo est maintenant opérationnel ! 🐧"
 echo ""
