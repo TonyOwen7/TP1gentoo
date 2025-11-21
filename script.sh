@@ -229,14 +229,23 @@ log_info "Mise à jour de l'arbre Portage (emerge-webrsync)"
 emerge-webrsync 2>&1 | grep -E ">>>" || true
 log_success "Arbre Portage mis à jour"
 
-# Sélection du profil systemd
+# Sélection du profil systemd - APPROCHE SIMPLIFIÉE
 log_info "Sélection du profil systemd"
-PROFILE=$(eselect profile list | grep "systemd" | grep -v "desktop\|gnome\|kde\|plasma" | grep "stable" | head -1 | awk '{print $2}' | tr -d '[]')
-if [ -n "$PROFILE" ]; then
-  eselect profile set ${PROFILE}
-  log_success "Profil systemd sélectionné: ${PROFILE}"
+# Attendre un peu pour s'assurer que les profils sont disponibles
+sleep 2
+
+# Méthode simplifiée pour trouver un profil systemd
+if eselect profile list | grep -q "systemd" 2>/dev/null; then
+    # Prendre le premier profil systemd stable disponible
+    SYSTEMD_PROFILE=$(eselect profile list | grep "systemd" | grep "stable" | head -1 | awk '{print $1}' | tr -d '[]')
+    if [ -n "$SYSTEMD_PROFILE" ]; then
+        eselect profile set "$SYSTEMD_PROFILE"
+        log_success "Profil systemd sélectionné: $SYSTEMD_PROFILE"
+    else
+        log_warning "Aucun profil systemd stable trouvé, utilisation du profil par défaut"
+    fi
 else
-  log_warning "Profil systemd non trouvé, utilisation du profil par défaut"
+    log_warning "Aucun profil systemd trouvé dans la liste, continuation avec le profil actuel"
 fi
 
 # 1. Configuration du clavier (français)
@@ -254,8 +263,8 @@ fr_FR.UTF-8 UTF-8
 EOF
 
 locale-gen >/dev/null 2>&1
-eselect locale set fr_FR.utf8 >/dev/null 2>&1
-log_success "Locales configurées et fr_FR.UTF-8 sélectionné"
+eselect locale set fr_FR.utf8 >/dev/null 2>&1 || eselect locale set 1 >/dev/null 2>&1
+log_success "Locales configurées"
 
 # Rechargement de l'environnement
 env-update >/dev/null 2>&1
@@ -270,7 +279,7 @@ log_success "Nom d'hôte défini: gentoo-vm"
 log_info "4/6 - Configuration du fuseau horaire (Europe/Paris)"
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 echo "Europe/Paris" > /etc/timezone
-emerge --config sys-libs/timezone-data >/dev/null 2>&1
+emerge --config sys-libs/timezone-data >/dev/null 2>&1 || true
 log_success "Fuseau horaire configuré: Europe/Paris"
 
 # 5. Configuration du réseau avec systemd-networkd et dhcp
@@ -285,8 +294,8 @@ IPv6AcceptRA=yes
 EOF
 
 # Activation des services réseau systemd
-systemctl enable systemd-networkd 2>/dev/null
-systemctl enable systemd-resolved 2>/dev/null
+systemctl enable systemd-networkd 2>/dev/null || true
+systemctl enable systemd-resolved 2>/dev/null || true
 log_success "Réseau configuré (DHCP activé)"
 
 # Installation de dhcpcd comme demandé
