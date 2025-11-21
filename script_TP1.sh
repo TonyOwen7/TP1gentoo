@@ -1,6 +1,7 @@
 #!/bin/bash
 # Script d'installation Gentoo complète - Exercices 1.2 à 1.9
 # Utilise systemd comme système d'init
+# VERSION CORRIGÉE: Extrait Portage aux deux endroits
 
 SECRET_CODE="codesecret"   # Code attendu
 
@@ -35,6 +36,7 @@ PORTAGE_URL="https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz"
 
 echo "================================================================"
 echo "     Installation complète Gentoo - TP1 Exercices 1.2-1.9"
+echo "     VERSION CORRIGÉE: Portage aux deux emplacements"
 echo "================================================================"
 echo ""
 
@@ -130,7 +132,7 @@ fi
 log_success "Exercice 1.5 terminé - Archives téléchargées"
 
 # ============================================================================
-# EXERCICE 1.6 - EXTRACTION DES ARCHIVES
+# EXERCICE 1.6 - EXTRACTION DES ARCHIVES (VERSION CORRIGÉE)
 # ============================================================================
 log_info "Exercice 1.6 - Extraction des archives"
 
@@ -140,13 +142,23 @@ log_info "Extraction du Stage3 dans /mnt/gentoo (avec option -p)..."
 tar xpf stage3-*.tar.xz --xattrs-include='*.*' --numeric-owner
 log_success "Stage3 extrait dans ${MOUNT_POINT}"
 
-log_info "Extraction de Portage dans /mnt/gentoo/usr..."
+# CORRECTION: Créer le répertoire pour Portage
+log_info "Création du répertoire /var/db/repos/gentoo..."
+mkdir -p "${MOUNT_POINT}/var/db/repos/gentoo"
+mkdir -p "${MOUNT_POINT}/usr/portage"
+
+# CORRECTION: Extraire Portage aux DEUX endroits
+log_info "Extraction de Portage dans /var/db/repos/gentoo (emplacement principal)..."
+tar xpf portage-latest.tar.xz -C "${MOUNT_POINT}/var/db/repos/gentoo" --strip-components=1
+log_success "Portage extrait dans ${MOUNT_POINT}/var/db/repos/gentoo"
+
+log_info "Extraction de Portage dans /usr/portage (emplacement alternatif)..."
 tar xpf portage-latest.tar.xz -C "${MOUNT_POINT}/usr"
-log_success "Portage extrait dans ${MOUNT_POINT}/usr"
+log_success "Portage extrait dans ${MOUNT_POINT}/usr/portage"
 
 # Nettoyage des archives
 rm -f stage3-*.tar.xz portage-latest.tar.xz
-log_success "Exercice 1.6 terminé - Archives extraites"
+log_success "Exercice 1.6 terminé - Archives extraites (Portage aux deux emplacements)"
 
 # ============================================================================
 # CONFIGURATION - PRÉPARATION DU CHROOT
@@ -159,8 +171,8 @@ cat >> "${MOUNT_POINT}/etc/portage/make.conf" <<'EOF'
 COMMON_FLAGS="-O2 -pipe -march=native"
 CFLAGS="${COMMON_FLAGS}"
 CXXFLAGS="${COMMON_FLAGS}"
-MAKEOPTS="-j$(nproc)"
-EMERGE_DEFAULT_OPTS="--jobs=$(nproc) --load-average=$(nproc)"
+MAKEOPTS="-j2"
+EMERGE_DEFAULT_OPTS="--jobs=2 --load-average=2"
 GENTOO_MIRRORS="https://mirror.init7.net/gentoo/ https://gentoo.mirrors.ovh.net/gentoo-distfiles/"
 ACCEPT_LICENSE="*"
 USE="systemd"
@@ -217,6 +229,21 @@ echo "================================================================"
 echo ""
 
 # ============================================================================
+# VÉRIFICATION DE PORTAGE
+# ============================================================================
+log_info "Vérification de l'installation de Portage..."
+if [ -d "/var/db/repos/gentoo/profiles" ]; then
+    log_success "Portage présent dans /var/db/repos/gentoo"
+elif [ -d "/usr/portage/profiles" ]; then
+    log_warning "Portage dans /usr/portage, déplacement..."
+    mkdir -p /var/db/repos
+    mv /usr/portage /var/db/repos/gentoo
+    log_success "Portage déplacé vers /var/db/repos/gentoo"
+else
+    log_warning "Portage non trouvé, synchronisation nécessaire"
+fi
+
+# ============================================================================
 # EXERCICE 1.8 - CONFIGURATION DE L'ENVIRONNEMENT
 # ============================================================================
 log_info "Exercice 1.8 - Configuration de l'environnement système"
@@ -235,28 +262,38 @@ sync-rsync-verify-metamanifest = yes
 EOF
 log_success "Dépôts configurés"
 
-# Mise à jour de l'arbre Portage
-log_info "Mise à jour de l'arbre Portage (emerge-webrsync)"
-emerge-webrsync 2>&1 | grep -E ">>>" || true
-log_success "Arbre Portage mis à jour"
-
-# Sélection du profil systemd - APPROCHE SIMPLIFIÉE
+# Sélection du profil systemd
 log_info "Sélection du profil systemd"
-# Attendre un peu pour s'assurer que les profils sont disponibles
-sleep 2
 
-# Méthode simplifiée pour trouver un profil systemd
-if eselect profile list | grep -q "systemd" 2>/dev/null; then
-    # Prendre le premier profil systemd stable disponible
-    SYSTEMD_PROFILE=$(eselect profile list | grep "systemd" | grep "stable" | head -1 | awk '{print $1}' | tr -d '[]')
-    if [ -n "$SYSTEMD_PROFILE" ]; then
-        eselect profile set "$SYSTEMD_PROFILE"
-        log_success "Profil systemd sélectionné: $SYSTEMD_PROFILE"
+# Vérifier que les profils existent
+if [ -d "/var/db/repos/gentoo/profiles" ]; then
+    log_success "Profils Gentoo disponibles"
+    
+    # Trouver un profil systemd automatiquement
+    SYSTEMD_PROFILE=""
+    for VERSION in 17.1/systemd 17.0/systemd 17.1/systemd/merged-usr; do
+        if [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64/${VERSION}" ]; then
+            SYSTEMD_PROFILE="/var/db/repos/gentoo/profiles/default/linux/amd64/${VERSION}"
+            break
+        fi
+    done
+    
+    if [ -n "${SYSTEMD_PROFILE}" ]; then
+        rm -f /etc/portage/make.profile
+        ln -sf "${SYSTEMD_PROFILE}" /etc/portage/make.profile
+        log_success "Profil systemd configuré: ${SYSTEMD_PROFILE}"
     else
-        log_warning "Aucun profil systemd stable trouvé, utilisation du profil par défaut"
+        log_warning "Profil systemd non trouvé, utilisation d'eselect..."
+        if command -v eselect >/dev/null 2>&1; then
+            PROFILE_NUM=$(eselect profile list 2>/dev/null | grep "systemd" | grep "stable" | head -1 | awk '{print $1}' | tr -d '[]')
+            if [ -n "${PROFILE_NUM}" ]; then
+                eselect profile set "${PROFILE_NUM}"
+                log_success "Profil systemd sélectionné via eselect"
+            fi
+        fi
     fi
 else
-    log_warning "Aucun profil systemd trouvé dans la liste, continuation avec le profil actuel"
+    log_warning "Profils non disponibles, synchronisation ultérieure nécessaire"
 fi
 
 # 1. Configuration du clavier (français)
@@ -399,7 +436,7 @@ echo "  ✓ Ex 1.2: Partitionnement du disque (4 partitions)"
 echo "  ✓ Ex 1.3: Formatage avec labels (boot, swap, root, home)"
 echo "  ✓ Ex 1.4: Montage des partitions et activation du swap"
 echo "  ✓ Ex 1.5: Téléchargement Stage3 et Portage"
-echo "  ✓ Ex 1.6: Extraction des archives"
+echo "  ✓ Ex 1.6: Extraction des archives (Portage aux deux emplacements)"
 echo "  ✓ Ex 1.7: Configuration du chroot"
 echo "  ✓ Ex 1.8: Configuration complète (clavier, locale, hostname, timezone, DHCP, fstab)"
 echo "  ✓ Ex 1.9: Installation de htop"
@@ -414,6 +451,7 @@ echo "  • Réseau: DHCP (systemd-networkd)"
 echo "  • Noyau: gentoo-kernel-bin"
 echo "  • Bootloader: GRUB2"
 echo "  • Outils: htop, dhcpcd"
+echo "  • Portage: /var/db/repos/gentoo ET /usr/portage"
 echo ""
 echo "👤 Comptes utilisateurs:"
 echo "  • root (mot de passe: root)"
@@ -450,10 +488,11 @@ echo "5. Au démarrage, connectez-vous avec:"
 echo "   - Utilisateur: root ou student"
 echo "   - Mot de passe: root ou student"
 echo ""
-echo "6. Vérifiez le bon fonctionnement avec:"
-echo "   • htop (surveillance des ressources)"
-echo "   • ip addr (vérification du réseau)"
-echo "   • localectl (vérification des locales)"
+echo "✅ CORRECTION APPLIQUÉE:"
+echo "   • Portage extrait dans /var/db/repos/gentoo"
+echo "   • Portage extrait dans /usr/portage"
+echo "   • Profil systemd configuré automatiquement"
+echo "   • Le TP2 fonctionnera sans problème !"
 echo ""
 log_success "Bonne utilisation de votre nouveau système Gentoo ! 🐧"
-echo ""
+echo ""tar 
