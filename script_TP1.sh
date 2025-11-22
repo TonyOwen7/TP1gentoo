@@ -48,10 +48,10 @@ if lsblk "${DISK}" 2>/dev/null | grep -q "${DISK}1"; then
 else
   (
     echo o      # Nouvelle table MBR
-    echo n; echo p; echo 1; echo ""; echo +100M    # /boot
-    echo n; echo p; echo 2; echo ""; echo +256M    # swap
-    echo n; echo p; echo 3; echo ""; echo +6G      # /
-    echo n; echo p; echo 4; echo ""; echo +6G      # /home
+    echo n; echo p; echo 1; echo ""; echo +512M    # /boot
+    echo n; echo p; echo 2; echo ""; echo +4G    # swap
+    echo n; echo p; echo 3; echo ""; echo +40G      # /
+    echo n; echo p; echo 4; echo ""; echo ""      # /home
     echo t; echo 2; echo 82                        # Type swap
     echo w
   ) | fdisk "${DISK}" >/dev/null 2>&1
