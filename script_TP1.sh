@@ -30,7 +30,7 @@ log_error() { echo -e "${RED}[✗]${NC} $1"; }
 # Configuration
 DISK="/dev/sda"
 MOUNT_POINT="/mnt/gentoo"
-STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-openrc/stage3-amd64-openrc-20251102T165025Z.tar.xz"
+STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/20251102T165025Z/stage3-amd64-openrc-20251102T165025Z.tar.xz"
 PORTAGE_URL="https://distfiles.gentoo.org/snapshots/portage-latest.tar.xz"
 
 echo "================================================================"
