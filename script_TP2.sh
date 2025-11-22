@@ -409,33 +409,119 @@ le système. Chaque entrée "menuentry" correspond à une option au démarrage.
 COMMANDES UTILISÉES:
 RAPPORT_2_4
 
-echo "[TP2] Compilation du noyau (cela peut prendre 10-30 minutes)..."
+echo "[TP2] Compilation du noyau (cela peut prendre 15-45 minutes)..."
+echo ""
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║     COMPILATION DU NOYAU - MODE SÉQUENTIEL (1 THREAD)     ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "[INFO] Début: $(date '+%H:%M:%S')"
+echo "[INFO] Mode: SÉQUENTIEL (make sans -j) - Plus lent mais plus stable"
+echo "[INFO] Espace disque disponible:"
+df -h / | grep -v Filesystem
+echo ""
+echo "[INFO] Mémoire disponible:"
+free -h | grep -E "Mem:|Swap:"
+echo ""
+echo "────────────────────────────────────────────────────────────"
+
 COMPILE_START=$(date +%s)
 
-echo "    make -j2  # Compilation avec 2 threads" >> "${RAPPORT}"
+echo "    make  # Compilation séquentielle (1 thread)" >> "${RAPPORT}"
 
-if make -j2 2>&1 | tee /tmp/compile.log | tail -10; then
+# Compilation SÉQUENTIELLE pour éviter les blocages
+echo "[COMPILE] Lancement de la compilation (mode séquentiel)..."
+echo "[INFO] Plus lent mais plus stable - Évite les problèmes de RAM"
+echo ""
+
+# Fonction pour afficher la progression toutes les 30 secondes
+(
+  while true; do
+    sleep 30
+    ELAPSED=$(($(date +%s) - COMPILE_START))
+    MINUTES=$((ELAPSED / 60))
+    SECONDS=$((ELAPSED % 60))
+    echo "[PROGRESS] Compilation en cours depuis ${MINUTES}min ${SECONDS}s..."
+    df -h / | grep -v Filesystem | grep sda3
+    free -h | grep "Mem:" | awk '{print "  Mémoire: " $3 " utilisée sur " $2}'
+  done
+) &
+PROGRESS_PID=$!
+
+# Compilation avec 1 seul thread
+if make 2>&1 | tee /tmp/compile_full.log; then
+    kill $PROGRESS_PID 2>/dev/null || true
     COMPILE_END=$(date +%s)
     COMPILE_TIME=$((COMPILE_END - COMPILE_START))
-    echo "[OK] Compilation réussie en ${COMPILE_TIME} secondes"
+    echo ""
+    echo "────────────────────────────────────────────────────────────"
+    echo "[OK] ✓ Compilation réussie en ${COMPILE_TIME} secondes"
+    echo "[INFO] Fin: $(date '+%H:%M:%S')"
 else
-    echo "[WARNING] Échec avec -j2, tentative avec 1 thread..."
-    echo "    make  # Compilation avec 1 thread (fallback)" >> "${RAPPORT}"
-    make 2>&1 | tail -10
-    COMPILE_END=$(date +%s)
-    COMPILE_TIME=$((COMPILE_END - COMPILE_START))
+    kill $PROGRESS_PID 2>/dev/null || true
+    echo ""
+    echo "────────────────────────────────────────────────────────────"
+    echo "[ERROR] ✗ Échec de la compilation"
+    echo ""
+    echo "[INFO] Dernières lignes du log d'erreur:"
+    tail -50 /tmp/compile_full.log
+    echo ""
+    echo "[INFO] Espace disque final:"
+    df -h / | grep -v Filesystem
+    echo ""
+    echo "[ERROR] Compilation échouée - Consultez /tmp/compile_full.log"
+    exit 1
 fi
 
 COMPILE_MIN=$((COMPILE_TIME / 60))
 COMPILE_SEC=$((COMPILE_TIME % 60))
 
-echo "[INFO] Installation des modules..."
-echo "    make modules_install" >> "${RAPPORT}"
-make modules_install 2>&1 | tail -5
+echo ""
+echo "════════════════════════════════════════════════════════════"
+echo "RÉSULTAT COMPILATION:"
+echo "════════════════════════════════════════════════════════════"
+echo "  • Temps total: ${COMPILE_MIN}min ${COMPILE_SEC}s"
+echo "  • Mode: Séquentiel (1 thread)"
+echo "  • Stabilité: Optimale"
+echo ""
+echo "[INFO] Espace disque après compilation:"
+df -h / | grep -v Filesystem
+echo ""
+echo "[INFO] Mémoire finale:"
+free -h | grep -E "Mem:|Swap:"
+echo ""
+echo "[INFO] Taille de /usr/src/linux:"
+du -sh /usr/src/linux
+echo ""
 
-echo "[INFO] Installation du noyau..."
+echo "────────────────────────────────────────────────────────────"
+echo "[STEP 2/4] Installation des modules du noyau..."
+echo "────────────────────────────────────────────────────────────"
+echo "[INFO] Commande: make modules_install"
+echo "[INFO] Destination: /lib/modules/"
+echo ""
+
+echo "    make modules_install" >> "${RAPPORT}"
+make modules_install
+
+echo ""
+echo "[OK] ✓ Modules installés"
+echo ""
+
+echo "────────────────────────────────────────────────────────────"
+echo "[STEP 3/4] Installation du noyau dans /boot..."
+echo "────────────────────────────────────────────────────────────"
+echo "[INFO] Commande: make install"
+echo "[INFO] Copie du noyau, System.map et config"
+echo ""
+
 echo "    make install" >> "${RAPPORT}"
-make install 2>&1 | tail -5
+make install
+
+echo ""
+echo "[INFO] Contenu de /boot après installation:"
+ls -lh /boot/
+echo ""
 
 # Vérification
 if ls /boot/vmlinuz-* >/dev/null 2>&1; then
@@ -550,9 +636,9 @@ COMMANDES UTILISÉES:
 RAPPORT_2_5
 
 echo "[INFO] Configuration du mot de passe root..."
-echo "    echo 'root:root' | chpasswd" >> "${RAPPORT}"
-echo "root:root" | chpasswd
-echo "[OK] Mot de passe root: root"
+echo "    echo 'root:gentoo123' | chpasswd" >> "${RAPPORT}"
+echo "root:gentoo123" | chpasswd
+echo "[OK] Mot de passe root: gentoo123"
 
 echo "[INFO] Installation de syslog-ng..."
 echo "    emerge app-admin/syslog-ng" >> "${RAPPORT}"
@@ -571,7 +657,7 @@ rc-update add logrotate default 2>/dev/null || true
 cat >> "${RAPPORT}" << 'RAPPORT_2_5_FIN'
 
 RÉSULTAT:
-    ✓ Mot de passe root configuré (mot de passe: root)
+    ✓ Mot de passe root configuré (mot de passe: gentoo123)
     ✓ syslog-ng installé (démon de logs système)
     ✓ logrotate installé (rotation automatique des logs)
     ✓ Services activés au démarrage avec OpenRC
@@ -625,7 +711,7 @@ if [ -f "/boot/grub/grub.cfg" ]; then
     echo "    ✓ GRUB configuré: ${GRUB_ENTRIES} entrée(s) de boot" | tee -a "${RAPPORT}"
 fi
 
-echo "    ✓ Mot de passe root: configuré (root)" | tee -a "${RAPPORT}"
+echo "    ✓ Mot de passe root: configuré (gentoo123)" | tee -a "${RAPPORT}"
 echo "    ✓ Gestion des logs: syslog-ng + logrotate" | tee -a "${RAPPORT}"
 
 # Services OpenRC
@@ -664,7 +750,7 @@ PROCÉDURE DE SORTIE ET REDÉMARRAGE:
 
 7. Se connecter avec:
    Login: root
-   Password: root
+   Password: gentoo123
 
 RAPPORT_2_6_FIN
 
@@ -703,7 +789,7 @@ CONFIGURATION FINALE:
 • Bootloader: GRUB2 installé et configuré
 • Logs: syslog-ng (collecte) + logrotate (rotation)
 • Réseau: DHCP via dhcpcd (OpenRC)
-• Mot de passe root: root (à changer après premier boot)
+• Mot de passe root: gentoo123 (à changer après premier boot)
 
 POINTS IMPORTANTS À RETENIR:
 
@@ -745,7 +831,7 @@ PROCHAINES ÉTAPES:
 1. Sortir du chroot avec 'exit'
 2. Démonter les partitions avec 'umount -R /mnt/gentoo'
 3. Redémarrer avec 'reboot'
-4. Se connecter: root / root
+4. Se connecter: root / gentoo123
 5. Changer le mot de passe root: passwd
 6. Vérifier le système:
    - uname -r : Version du noyau
@@ -825,7 +911,7 @@ echo "  5. Retirer le LiveCD de VirtualBox"
 echo ""
 echo "🔑 INFORMATIONS DE CONNEXION:"
 echo "    Utilisateur: root"
-echo "    Mot de passe: root"
+echo "    Mot de passe: gentoo123"
 echo ""
 echo "📊 VÉRIFICATIONS APRÈS BOOT:"
 echo "    • uname -r          : Vérifier version du noyau"
