@@ -80,36 +80,55 @@ log_info "Vérification et correction du profil Gentoo..."
 if [ -L "/etc/portage/make.profile" ]; then
     CURRENT_PROFILE=$(readlink /etc/portage/make.profile)
     log_info "Profil actuel: ${CURRENT_PROFILE}"
+elif [ -d "/etc/portage/make.profile" ]; then
+    log_warning "/etc/portage/make.profile est un répertoire (doit être un lien symbolique)"
 else
-    log_warning "Aucun profil configuré ou lien symbolique invalide"
+    log_warning "Aucun profil configuré"
 fi
 
-# Correction du profil
+# Nettoyage et création du profil correct
+log_info "Configuration du profil Gentoo..."
+
+# Supprimer l'ancien profil si c'est un répertoire
+if [ -d "/etc/portage/make.profile" ]; then
+    rm -rf /etc/portage/make.profile
+    log_success "Ancien répertoire make.profile supprimé"
+fi
+
+# Créer le répertoire parent si nécessaire
+mkdir -p /etc/portage
+
+# Chercher et configurer le profil approprié
 if [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64/17.1" ]; then
-    rm -f /etc/portage/make.profile
     ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64/17.1 /etc/portage/make.profile
     log_success "Profil configuré: default/linux/amd64/17.1"
 elif [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64/17.0" ]; then
-    rm -f /etc/portage/make.profile
     ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64/17.0 /etc/portage/make.profile
     log_success "Profil configuré: default/linux/amd64/17.0"
 elif [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64" ]; then
-    # Utiliser le profil amd64 de base
-    rm -f /etc/portage/make.profile
     ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64 /etc/portage/make.profile
     log_success "Profil configuré: default/linux/amd64"
 else
-    log_warning "Impossible de trouver un profil compatible, utilisation forcée"
-    # Créer un profil minimal
+    log_warning "Impossible de trouver un profil standard, utilisation du parent"
+    # Créer un profil minimal de secours
     mkdir -p /etc/portage/make.profile
     echo "gentoo" > /etc/portage/make.profile/parent
+fi
+
+# Vérification finale
+if [ -L "/etc/portage/make.profile" ]; then
+    FINAL_PROFILE=$(readlink /etc/portage/make.profile)
+    log_success "Profil final: ${FINAL_PROFILE}"
+else
+    log_error "Échec de la configuration du profil"
+    exit 1
 fi
 
 # Mise à jour de l'environnement
 env-update >/dev/null 2>&1
 source /etc/profile
 
-log_success "Profil Gentoo corrigé"
+log_success "Profil Gentoo corrigé et environnement mis à jour"
 
 # ============================================================================
 # DÉBUT DU TP2 DANS LE CHROOT
