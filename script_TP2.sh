@@ -1,17 +1,60 @@
 #!/bin/bash
 # TP2 - Configuration système Gentoo OpenRC (Exercices 2.1 à 2.6)
-# Génère automatiquement le rapport
+# Démarre directement dans le chroot
+
+SECRET_CODE="1234"
+
+read -sp "🔑 Entrez le code pour exécuter ce script : " USER_CODE
+echo
+if [ "$USER_CODE" != "$SECRET_CODE" ]; then
+  echo "❌ Code incorrect. Exécution annulée."
+  exit 1
+fi
+
+echo "✅ Code correct, poursuite de l'exécution..."
 
 set -euo pipefail
 
+# Couleurs
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
+log_error() { echo -e "${RED}[✗]${NC} $1"; }
+
+# Configuration
 MOUNT_POINT="/mnt/gentoo"
 RAPPORT="/root/rapport_tp2_openrc.txt"
 
 echo "================================================================"
 echo "     TP2 - Configuration Gentoo OpenRC (Ex 2.1-2.6)"
-echo "     Avec génération automatique du rapport"
+echo "     Démarrage direct en chroot"
 echo "================================================================"
 echo ""
+
+# Vérification que nous sommes dans le chroot
+if [ ! -f "/etc/gentoo-release" ] && [ ! -d "/mnt/gentoo/etc" ]; then
+    log_error "Ce script doit être exécuté depuis le chroot Gentoo"
+    log_info "Pour entrer dans le chroot:"
+    echo "  mount /dev/sda3 /mnt/gentoo"
+    echo "  mount /dev/sda1 /mnt/gentoo/boot 2>/dev/null || true"
+    echo "  mount /dev/sda4 /mnt/gentoo/home 2>/dev/null || true"
+    echo "  swapon /dev/sda2 2>/dev/null || true"
+    echo "  cp -L /etc/resolv.conf /mnt/gentoo/etc/"
+    echo "  mount -t proc /proc /mnt/gentoo/proc"
+    echo "  mount --rbind /sys /mnt/gentoo/sys"
+    echo "  mount --make-rslave /mnt/gentoo/sys"
+    echo "  mount --rbind /dev /mnt/gentoo/dev"
+    echo "  mount --make-rslave /mnt/gentoo/dev"
+    echo "  chroot /mnt/gentoo /bin/bash"
+    echo "  ./tp2_openrc_complet.sh"
+    exit 1
+fi
 
 # Initialisation du rapport
 cat > "${RAPPORT}" << 'EOF'
@@ -28,52 +71,17 @@ Système: Gentoo Linux avec OpenRC
 
 EOF
 
-echo "[INFO] Vérification du système monté..."
-
-if [ ! -d "${MOUNT_POINT}/etc" ]; then
-    echo "[INFO] Montage du système..."
-    mkdir -p "${MOUNT_POINT}"
-    mount /dev/sda3 "${MOUNT_POINT}"
-    mkdir -p "${MOUNT_POINT}"/{boot,home}
-    mount /dev/sda1 "${MOUNT_POINT}/boot" 2>/dev/null || true
-    mount /dev/sda4 "${MOUNT_POINT}/home" 2>/dev/null || true
-    swapon /dev/sda2 2>/dev/null || true
-fi
-
-mount -t proc /proc "${MOUNT_POINT}/proc" 2>/dev/null || true
-mount --rbind /sys "${MOUNT_POINT}/sys" 2>/dev/null || true
-mount --make-rslave "${MOUNT_POINT}/sys" 2>/dev/null || true
-mount --rbind /dev "${MOUNT_POINT}/dev" 2>/dev/null || true
-mount --make-rslave "${MOUNT_POINT}/dev" 2>/dev/null || true
-mount --bind /run "${MOUNT_POINT}/run" 2>/dev/null || true
-cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/" 2>/dev/null || true
-
-echo "[OK] Système monté et prêt"
-
 # ============================================================================
 # DÉBUT DU TP2 DANS LE CHROOT
 # ============================================================================
 
-chroot "${MOUNT_POINT}" /bin/bash <<'CHROOT_TP2'
-#!/bin/bash
-set -euo pipefail
-
-source /etc/profile
-export PS1="(chroot) \$PS1"
-
-RAPPORT="/root/rapport_tp2_openrc.txt"
-
-echo ""
-echo "================================================================"
-echo "[TP2] DÉBUT - Configuration système OpenRC"
-echo "================================================================"
-echo ""
+log_info "Début de la configuration système OpenRC..."
 
 # ============================================================================
 # EXERCICE 2.1 - SOURCES DU NOYAU
 # ============================================================================
 echo ""
-echo "[TP2] ━━━ EXERCICE 2.1 - Installation sources du noyau ━━━"
+log_info "━━━━ EXERCICE 2.1 - Installation sources du noyau ━━━━"
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_1'
 
@@ -96,11 +104,11 @@ Cette commande télécharge et installe les sources dans /usr/src/linux-*
 COMMANDES UTILISÉES:
 RAPPORT_2_1
 
-echo "[TP2] Installation des sources du noyau Linux..."
+log_info "Installation des sources du noyau Linux..."
 if emerge --noreplace sys-kernel/gentoo-sources 2>&1 | tee /tmp/kernel_install.log | grep -E ">>>"; then
-    echo "[OK] Sources installées"
+    log_success "Sources installées"
 else
-    echo "[WARNING] Tentative avec gestion des conflits..."
+    log_warning "Tentative avec gestion des conflits..."
     emerge --autounmask-write sys-kernel/gentoo-sources 2>&1 | tail -5 || true
     etc-update --automode -5 2>/dev/null || true
     emerge sys-kernel/gentoo-sources 2>&1 | tail -5
@@ -109,7 +117,7 @@ fi
 if ls -d /usr/src/linux-* >/dev/null 2>&1; then
     KERNEL_VER=$(ls -d /usr/src/linux-* | head -1 | sed 's|/usr/src/linux-||')
     ln -sf /usr/src/linux-* /usr/src/linux 2>/dev/null || true
-    echo "[OK] Sources installées: ${KERNEL_VER}"
+    log_success "Sources installées: ${KERNEL_VER}"
     
     cat >> "${RAPPORT}" << RAPPORT_2_1_FIN
     emerge sys-kernel/gentoo-sources
@@ -125,7 +133,7 @@ en plus du noyau vanilla. Elles sont recommandées pour Gentoo.
 
 RAPPORT_2_1_FIN
 else
-    echo "[ERROR] Échec installation"
+    log_error "Échec installation sources noyau"
     echo "ERREUR: Impossible d'installer les sources du noyau" >> "${RAPPORT}"
     exit 1
 fi
@@ -134,7 +142,7 @@ fi
 # EXERCICE 2.2 - IDENTIFICATION MATÉRIEL
 # ============================================================================
 echo ""
-echo "[TP2] ━━━ EXERCICE 2.2 - Identification du matériel ━━━"
+log_info "━━━━ EXERCICE 2.2 - Identification du matériel ━━━━"
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_2'
 
@@ -165,7 +173,7 @@ RAPPORT_2_2
 
 # Installation pciutils si nécessaire
 if ! command -v lspci >/dev/null 2>&1; then
-    echo "[INFO] Installation de pciutils..."
+    log_info "Installation de pciutils..."
     emerge --noreplace sys-apps/pciutils 2>&1 | grep -E ">>>" || true
 fi
 
@@ -230,13 +238,13 @@ Ces informations permettent de savoir quels drivers activer dans le noyau.
 
 RAPPORT_2_2_FIN
 
-echo "[OK] Matériel identifié et documenté"
+log_success "Matériel identifié et documenté"
 
 # ============================================================================
 # EXERCICE 2.3 - CONFIGURATION DU NOYAU
 # ============================================================================
 echo ""
-echo "[TP2] ━━━ EXERCICE 2.3 - Configuration du noyau pour VM ━━━"
+log_info "━━━━ EXERCICE 2.3 - Configuration du noyau pour VM ━━━━"
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_3'
 
@@ -277,17 +285,17 @@ RAPPORT_2_3
 cd /usr/src/linux
 
 # Outils nécessaires
-echo "[INFO] Installation des outils de configuration..."
+log_info "Installation des outils de configuration..."
 emerge --noreplace sys-devel/bc sys-devel/ncurses 2>&1 | grep -E ">>>" || true
 
 # Configuration de base
 if [ -f "/proc/config.gz" ]; then
     zcat /proc/config.gz > .config
-    echo "[OK] Config basée sur noyau actuel"
+    log_success "Config basée sur noyau actuel"
     echo "    zcat /proc/config.gz > .config" >> "${RAPPORT}"
 else
     make defconfig 2>&1 | tail -3
-    echo "[OK] Config par défaut générée"
+    log_success "Config par défaut générée"
     echo "    make defconfig" >> "${RAPPORT}"
 fi
 
@@ -344,7 +352,7 @@ if [ -f "scripts/config" ]; then
     ./scripts/config --disable MACINTOSH_DRIVERS 2>/dev/null || true
     echo "    ./scripts/config --disable MACINTOSH_DRIVERS" >> "${RAPPORT}"
     
-    echo "[OK] Options configurées automatiquement"
+    log_success "Options configurées automatiquement"
 fi
 
 # Application finale
@@ -372,13 +380,13 @@ OBSERVATION:
 
 RAPPORT_2_3_FIN
 
-echo "[OK] Noyau configuré pour machine virtuelle"
+log_success "Noyau configuré pour machine virtuelle"
 
 # ============================================================================
 # EXERCICE 2.4 - COMPILATION ET INSTALLATION
 # ============================================================================
 echo ""
-echo "[TP2] ━━━ EXERCICE 2.4 - Compilation, installation noyau + GRUB ━━━"
+log_info "━━━━ EXERCICE 2.4 - Compilation, installation noyau + GRUB ━━━━"
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_4'
 
@@ -394,83 +402,99 @@ par grub2. Regardez le contenu du fichier.
 RÉPONSE:
 La compilation et l'installation du noyau se font en plusieurs étapes :
 
-1. make -j<N>          - Compile le noyau (N = nombre de threads parallèles)
+1. make -j$(nproc)     - Compile le noyau avec tous les cœurs disponibles
 2. make modules_install - Installe les modules dans /lib/modules/<version>
 3. make install        - Copie le noyau et les fichiers dans /boot
 
 Pour GRUB (bootloader) :
 1. emerge sys-boot/grub              - Installation du paquet GRUB
-2. grub-install /dev/sdX             - Installation sur le MBR du disque
+2. grub-install /dev/sda             - Installation sur le MBR du disque
 3. grub-mkconfig -o /boot/grub/grub.cfg - Génération auto de la config
-
-Le fichier grub.cfg contient les entrées de boot qui permettent de démarrer
-le système. Chaque entrée "menuentry" correspond à une option au démarrage.
 
 COMMANDES UTILISÉES:
 RAPPORT_2_4
 
-echo "[TP2] Compilation du noyau (cela peut prendre 15-45 minutes)..."
+cd /usr/src/linux
+
+log_info "Compilation du noyau (optimisé pour VM)..."
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║     COMPILATION DU NOYAU - MODE SÉQUENTIEL (1 THREAD)     ║"
+echo "║     COMPILATION OPTIMISÉE - $(nproc) THREADS PARALLÈLES     ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
-echo "[INFO] Début: $(date '+%H:%M:%S')"
-echo "[INFO] Mode: SÉQUENTIEL (make sans -j) - Plus lent mais plus stable"
-echo "[INFO] Espace disque disponible:"
+log_info "Début: $(date '+%H:%M:%S')"
+log_info "Processeurs disponibles: $(nproc)"
+log_info "Mode: PARALLÈLE avec make -j$(nproc)"
+log_info "Espace disque disponible:"
 df -h / | grep -v Filesystem
 echo ""
-echo "[INFO] Mémoire disponible:"
+log_info "Mémoire disponible:"
 free -h | grep -E "Mem:|Swap:"
 echo ""
 echo "────────────────────────────────────────────────────────────"
 
 COMPILE_START=$(date +%s)
 
-echo "    make  # Compilation séquentielle (1 thread)" >> "${RAPPORT}"
+echo "    make -j$(nproc)  # Compilation parallèle optimisée" >> "${RAPPORT}"
 
-# Compilation SÉQUENTIELLE pour éviter les blocages
-echo "[COMPILE] Lancement de la compilation (mode séquentiel)..."
-echo "[INFO] Plus lent mais plus stable - Évite les problèmes de RAM"
-echo ""
+# Vérification de l'espace disque
+AVAILABLE_SPACE=$(df / | awk 'NR==2 {print $4}')
+if [ "${AVAILABLE_SPACE%G}" -lt 5 ]; then
+    log_warning "Espace disque faible: ${AVAILABLE_SPACE}"
+    log_info "Nettoyage avant compilation..."
+    emerge --depclean 2>/dev/null || true
+fi
 
-# Fonction pour afficher la progression toutes les 30 secondes
+# Compilation PARALLÈLE optimisée
 (
   while true; do
     sleep 30
     ELAPSED=$(($(date +%s) - COMPILE_START))
     MINUTES=$((ELAPSED / 60))
     SECONDS=$((ELAPSED % 60))
-    echo "[PROGRESS] Compilation en cours depuis ${MINUTES}min ${SECONDS}s..."
-    df -h / | grep -v Filesystem | grep sda3
-    free -h | grep "Mem:" | awk '{print "  Mémoire: " $3 " utilisée sur " $2}'
+    log_info "Compilation en cours depuis ${MINUTES}min ${SECONDS}s..."
+    # Vérification mémoire
+    MEM_USAGE=$(free -m | grep "Mem:" | awk '{printf "%.1f%%", ($3/$2)*100}')
+    log_info "Mémoire utilisée: ${MEM_USAGE}"
   done
 ) &
 PROGRESS_PID=$!
 
-# Compilation avec 1 seul thread
-if make 2>&1 | tee /tmp/compile_full.log; then
+# Compilation avec tous les cœurs
+if make -j$(nproc) 2>&1 | tee /tmp/compile_full.log; then
     kill $PROGRESS_PID 2>/dev/null || true
     COMPILE_END=$(date +%s)
     COMPILE_TIME=$((COMPILE_END - COMPILE_START))
     echo ""
     echo "────────────────────────────────────────────────────────────"
-    echo "[OK] ✓ Compilation réussie en ${COMPILE_TIME} secondes"
-    echo "[INFO] Fin: $(date '+%H:%M:%S')"
+    log_success "Compilation réussie en ${COMPILE_TIME} secondes"
+    log_info "Fin: $(date '+%H:%M:%S')"
 else
     kill $PROGRESS_PID 2>/dev/null || true
     echo ""
     echo "────────────────────────────────────────────────────────────"
-    echo "[ERROR] ✗ Échec de la compilation"
-    echo ""
-    echo "[INFO] Dernières lignes du log d'erreur:"
-    tail -50 /tmp/compile_full.log
-    echo ""
-    echo "[INFO] Espace disque final:"
-    df -h / | grep -v Filesystem
-    echo ""
-    echo "[ERROR] Compilation échouée - Consultez /tmp/compile_full.log"
-    exit 1
+    log_error "Échec de la compilation - Tentative avec moins de threads..."
+    
+    # Tentative avec moitié moins de threads
+    HALF_CPUS=$(( $(nproc) / 2 ))
+    HALF_CPUS=$(( HALF_CPUS > 0 ? HALF_CPUS : 1 ))
+    
+    log_info "Nouvelle tentative avec ${HALF_CPUS} threads..."
+    if make -j${HALF_CPUS} 2>&1 | tee /tmp/compile_retry.log; then
+        COMPILE_END=$(date +%s)
+        COMPILE_TIME=$((COMPILE_END - COMPILE_START))
+        log_success "Compilation réussie avec ${HALF_CPUS} threads en ${COMPILE_TIME}s"
+    else
+        log_error "Échec de compilation même avec ${HALF_CPUS} threads"
+        log_info "Dernières erreurs:"
+        tail -30 /tmp/compile_retry.log
+        echo ""
+        log_info "SOLUTION: Vérifiez:"
+        echo "  1. Espace disque: df -h"
+        echo "  2. Mémoire: free -h" 
+        echo "  3. Logs: /tmp/compile_*.log"
+        exit 1
+    fi
 fi
 
 COMPILE_MIN=$((COMPILE_TIME / 60))
@@ -481,45 +505,45 @@ echo "════════════════════════�
 echo "RÉSULTAT COMPILATION:"
 echo "════════════════════════════════════════════════════════════"
 echo "  • Temps total: ${COMPILE_MIN}min ${COMPILE_SEC}s"
-echo "  • Mode: Séquentiel (1 thread)"
-echo "  • Stabilité: Optimale"
+echo "  • Mode: Parallèle ($(nproc) threads)"
+echo "  • Performance: Optimale"
 echo ""
-echo "[INFO] Espace disque après compilation:"
+log_info "Espace disque après compilation:"
 df -h / | grep -v Filesystem
 echo ""
-echo "[INFO] Mémoire finale:"
+log_info "Mémoire finale:"
 free -h | grep -E "Mem:|Swap:"
 echo ""
-echo "[INFO] Taille de /usr/src/linux:"
+log_info "Taille de /usr/src/linux:"
 du -sh /usr/src/linux
 echo ""
 
 echo "────────────────────────────────────────────────────────────"
-echo "[STEP 2/4] Installation des modules du noyau..."
+log_info "Installation des modules du noyau..."
 echo "────────────────────────────────────────────────────────────"
-echo "[INFO] Commande: make modules_install"
-echo "[INFO] Destination: /lib/modules/"
+log_info "Commande: make modules_install"
+log_info "Destination: /lib/modules/"
 echo ""
 
 echo "    make modules_install" >> "${RAPPORT}"
 make modules_install
 
 echo ""
-echo "[OK] ✓ Modules installés"
+log_success "Modules installés"
 echo ""
 
 echo "────────────────────────────────────────────────────────────"
-echo "[STEP 3/4] Installation du noyau dans /boot..."
+log_info "Installation du noyau dans /boot..."
 echo "────────────────────────────────────────────────────────────"
-echo "[INFO] Commande: make install"
-echo "[INFO] Copie du noyau, System.map et config"
+log_info "Commande: make install"
+log_info "Copie du noyau, System.map et config"
 echo ""
 
 echo "    make install" >> "${RAPPORT}"
 make install
 
 echo ""
-echo "[INFO] Contenu de /boot après installation:"
+log_info "Contenu de /boot après installation:"
 ls -lh /boot/
 echo ""
 
@@ -527,7 +551,7 @@ echo ""
 if ls /boot/vmlinuz-* >/dev/null 2>&1; then
     KERNEL_FILE=$(ls /boot/vmlinuz-* | head -1)
     KERNEL_SIZE=$(du -h "$KERNEL_FILE" | cut -f1)
-    echo "[OK] Noyau installé: ${KERNEL_FILE} (${KERNEL_SIZE})"
+    log_success "Noyau installé: ${KERNEL_FILE} (${KERNEL_SIZE})"
     
     cat >> "${RAPPORT}" << KERNEL_RESULT
 
@@ -540,7 +564,7 @@ RÉSULTAT COMPILATION ET INSTALLATION:
 KERNEL_RESULT
     ls -lh /boot/ | grep -E "vmlinuz|System.map|config" | tee -a "${RAPPORT}"
 else
-    echo "[ERROR] Noyau non installé"
+    log_error "Noyau non installé"
     echo "ERREUR: Le noyau n'a pas été installé correctement" >> "${RAPPORT}"
     exit 1
 fi
@@ -550,16 +574,16 @@ echo "" >> "${RAPPORT}"
 echo "INSTALLATION ET CONFIGURATION DE GRUB:" >> "${RAPPORT}"
 
 if ! command -v grub-install >/dev/null 2>&1; then
-    echo "[INFO] Installation de GRUB2..."
+    log_info "Installation de GRUB2..."
     echo "    emerge sys-boot/grub" >> "${RAPPORT}"
     emerge --noreplace sys-boot/grub 2>&1 | grep -E ">>>" || true
 fi
 
-echo "[INFO] Installation de GRUB sur /dev/sda..."
+log_info "Installation de GRUB sur /dev/sda..."
 echo "    grub-install /dev/sda" >> "${RAPPORT}"
 grub-install /dev/sda 2>&1 | grep -v "Installing" | tee -a "${RAPPORT}"
 
-echo "[INFO] Génération de la configuration GRUB..."
+log_info "Génération de la configuration GRUB..."
 echo "    grub-mkconfig -o /boot/grub/grub.cfg" >> "${RAPPORT}"
 grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | grep -E "Found|Adding|done" | tee -a "${RAPPORT}"
 
@@ -595,13 +619,13 @@ GRUB détecte automatiquement :
 
 RAPPORT_2_4_FIN
 
-echo "[OK] Noyau compilé et GRUB installé avec succès"
+log_success "Noyau compilé et GRUB installé avec succès"
 
 # ============================================================================
 # EXERCICE 2.5 - CONFIGURATION SYSTÈME
 # ============================================================================
 echo ""
-echo "[TP2] ━━━ EXERCICE 2.5 - Configuration système et logs ━━━"
+log_info "━━━━ EXERCICE 2.5 - Configuration système et logs ━━━━"
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_5'
 
@@ -635,20 +659,20 @@ Pour OpenRC, activation avec rc-update :
 COMMANDES UTILISÉES:
 RAPPORT_2_5
 
-echo "[INFO] Configuration du mot de passe root..."
-echo "    echo 'root:gentoo123' | chpasswd" >> "${RAPPORT}"
-echo "root:gentoo123" | chpasswd
-echo "[OK] Mot de passe root: gentoo123"
+log_info "Configuration du mot de passe root..."
+echo "    echo 'root:root' | chpasswd" >> "${RAPPORT}"
+echo "root:root" | chpasswd
+log_success "Mot de passe root: root"
 
-echo "[INFO] Installation de syslog-ng..."
+log_info "Installation de syslog-ng..."
 echo "    emerge app-admin/syslog-ng" >> "${RAPPORT}"
-emerge --noreplace app-admin/syslog-ng 2>&1 | grep -E ">>>" || echo "[INFO] Déjà installé"
+emerge --noreplace app-admin/syslog-ng 2>&1 | grep -E ">>>" || log_info "Déjà installé"
 
-echo "[INFO] Installation de logrotate..."
+log_info "Installation de logrotate..."
 echo "    emerge app-admin/logrotate" >> "${RAPPORT}"
-emerge --noreplace app-admin/logrotate 2>&1 | grep -E ">>>" || echo "[INFO] Déjà installé"
+emerge --noreplace app-admin/logrotate 2>&1 | grep -E ">>>" || log_info "Déjà installé"
 
-echo "[INFO] Activation des services au démarrage (OpenRC)..."
+log_info "Activation des services au démarrage (OpenRC)..."
 echo "    rc-update add syslog-ng default" >> "${RAPPORT}"
 echo "    rc-update add logrotate default" >> "${RAPPORT}"
 rc-update add syslog-ng default 2>/dev/null || true
@@ -657,7 +681,7 @@ rc-update add logrotate default 2>/dev/null || true
 cat >> "${RAPPORT}" << 'RAPPORT_2_5_FIN'
 
 RÉSULTAT:
-    ✓ Mot de passe root configuré (mot de passe: gentoo123)
+    ✓ Mot de passe root configuré (mot de passe: root)
     ✓ syslog-ng installé (démon de logs système)
     ✓ logrotate installé (rotation automatique des logs)
     ✓ Services activés au démarrage avec OpenRC
@@ -681,13 +705,13 @@ Configuration :
 
 RAPPORT_2_5_FIN
 
-echo "[OK] Système configuré avec gestion des logs"
+log_success "Système configuré avec gestion des logs"
 
 # ============================================================================
 # EXERCICE 2.6 - VÉRIFICATIONS FINALES
 # ============================================================================
 echo ""
-echo "[TP2] ━━━ EXERCICE 2.6 - Vérifications finales ━━━"
+log_info "━━━━ EXERCICE 2.6 - Vérifications finales ━━━━"
 
 cat >> "${RAPPORT}" << 'RAPPORT_2_6'
 
@@ -701,7 +725,7 @@ Sortez du chroot, démontez les partitions et redémarrez sur votre installation
 VÉRIFICATIONS AVANT REDÉMARRAGE:
 RAPPORT_2_6
 
-echo "[INFO] Vérifications finales du système..."
+log_info "Vérifications finales du système..."
 
 KERNEL_CHECK=$(ls /boot/vmlinuz-* 2>/dev/null | head -1)
 echo "    ✓ Noyau présent: ${KERNEL_CHECK}" | tee -a "${RAPPORT}"
@@ -711,7 +735,7 @@ if [ -f "/boot/grub/grub.cfg" ]; then
     echo "    ✓ GRUB configuré: ${GRUB_ENTRIES} entrée(s) de boot" | tee -a "${RAPPORT}"
 fi
 
-echo "    ✓ Mot de passe root: configuré (gentoo123)" | tee -a "${RAPPORT}"
+echo "    ✓ Mot de passe root: configuré (root)" | tee -a "${RAPPORT}"
 echo "    ✓ Gestion des logs: syslog-ng + logrotate" | tee -a "${RAPPORT}"
 
 # Services OpenRC
@@ -750,18 +774,18 @@ PROCÉDURE DE SORTIE ET REDÉMARRAGE:
 
 7. Se connecter avec:
    Login: root
-   Password: gentoo123
+   Password: root
 
 RAPPORT_2_6_FIN
 
-echo "[OK] Vérifications terminées, système prêt pour le boot"
+log_success "Vérifications terminées, système prêt pour le boot"
 
 # ============================================================================
 # RÉSUMÉ FINAL
 # ============================================================================
 echo ""
 echo "================================================================"
-echo "[SUCCESS] 🎉 TP2 TERMINÉ AVEC SUCCÈS !"
+log_success "🎉 TP2 TERMINÉ AVEC SUCCÈS !"
 echo "================================================================"
 echo ""
 
@@ -789,40 +813,13 @@ CONFIGURATION FINALE:
 • Bootloader: GRUB2 installé et configuré
 • Logs: syslog-ng (collecte) + logrotate (rotation)
 • Réseau: DHCP via dhcpcd (OpenRC)
-• Mot de passe root: gentoo123 (à changer après premier boot)
-
-POINTS IMPORTANTS À RETENIR:
-
-1. DEVTMPFS:
-   - Gère automatiquement /dev au démarrage du noyau
-   - Évite les problèmes de périphériques manquants
-   - Essentiel pour un boot sans initramfs
-
-2. Compilation en statique vs modules:
-   - Statique (=y): Intégré au noyau, toujours disponible
-   - Module (=m): Chargé à la demande, plus flexible
-   - Pour les FS racine, TOUJOURS compiler en statique
-
-3. GRUB:
-   - grub-install: Installe le bootloader dans le MBR
-   - grub-mkconfig: Génère automatiquement la configuration
-   - Détecte tous les noyaux et autres OS
-
-4. OpenRC:
-   - rc-update add <service> default: Active au démarrage
-   - rc-service <service> start: Démarre immédiatement
-   - /etc/init.d/: Scripts de services
-
-5. Logs système:
-   - syslog-ng: Collecte en temps réel
-   - logrotate: Évite la saturation du disque
-   - /var/log/messages: Fichier principal à consulter
+• Mot de passe root: root (à changer après premier boot)
 
 COMPÉTENCES ACQUISES:
 ✓ Installation et configuration des sources du noyau Linux
 ✓ Identification du matériel système avec lspci, lscpu, lsblk
 ✓ Configuration du noyau avec make menuconfig / scripts/config
-✓ Compilation optimisée avec make -j
+✓ Compilation optimisée avec make -j$(nproc)
 ✓ Installation d'un bootloader (GRUB2)
 ✓ Configuration des services système OpenRC
 ✓ Gestion des logs système
@@ -831,25 +828,13 @@ PROCHAINES ÉTAPES:
 1. Sortir du chroot avec 'exit'
 2. Démonter les partitions avec 'umount -R /mnt/gentoo'
 3. Redémarrer avec 'reboot'
-4. Se connecter: root / gentoo123
+4. Se connecter: root / root
 5. Changer le mot de passe root: passwd
 6. Vérifier le système:
    - uname -r : Version du noyau
    - rc-status : État des services
    - ip addr : Configuration réseau
    - dmesg | less : Messages du noyau
-
-COMMANDES UTILES POUR LA SUITE:
-• emerge --sync : Mettre à jour le dépôt Portage
-• emerge --update --deep --newuse @world : Mettre à jour le système
-• emerge --depclean : Nettoyer les paquets inutiles
-• rc-update : Gérer les services
-• tail -f /var/log/messages : Suivre les logs en temps réel
-
-RESSOURCES:
-• Documentation Gentoo: https://wiki.gentoo.org/
-• Configuration noyau: https://wiki.gentoo.org/wiki/Kernel/Configuration
-• OpenRC: https://wiki.gentoo.org/wiki/OpenRC
 
 ================================================================================
                      FIN DU RAPPORT TP2 - GENTOO OPENRC
@@ -858,31 +843,11 @@ Date de génération: $(date '+%d/%m/%Y %H:%M:%S')
 ================================================================================
 RAPPORT_FINAL
 
-echo "[OK] Rapport complet généré dans: ${RAPPORT}"
-
-CHROOT_TP2
-
-# ============================================================================
-# SORTIE DU CHROOT ET INSTRUCTIONS FINALES
-# ============================================================================
-
-# Copie du rapport hors du chroot
-if [ -f "${MOUNT_POINT}/root/rapport_tp2_openrc.txt" ]; then
-    cp "${MOUNT_POINT}/root/rapport_tp2_openrc.txt" /root/
-    echo "[OK] Rapport copié: /root/rapport_tp2_openrc.txt"
-    
-    echo ""
-    echo "📄 APERÇU DU RAPPORT:"
-    echo "════════════════════════════════════════════════════════════"
-    head -40 /root/rapport_tp2_openrc.txt
-    echo "..."
-    echo "(Voir le fichier complet: /root/rapport_tp2_openrc.txt)"
-    echo "════════════════════════════════════════════════════════════"
-fi
+log_success "Rapport complet généré dans: ${RAPPORT}"
 
 echo ""
 echo "================================================================"
-echo "[SUCCESS] ✅ TP2 TERMINÉ AVEC SUCCÈS !"
+log_success "✅ TP2 TERMINÉ - SYSTÈME COMPLÈTEMENT OPÉRATIONNEL"
 echo "================================================================"
 echo ""
 echo "🎯 ÉTAT ACTUEL:"
@@ -894,24 +859,20 @@ echo "  • Rapport généré ✓"
 echo ""
 echo "📋 POUR REDÉMARRER MAINTENANT:"
 echo ""
-echo "  1. Sortir du chroot (si vous y êtes):"
+echo "  1. Sortir du chroot:"
 echo "     exit"
 echo ""
-echo "  2. Retourner à la racine:"
-echo "     cd /"
-echo ""
-echo "  3. Démonter les partitions:"
+echo "  2. Démonter les partitions:"
 echo "     umount -R /mnt/gentoo"
-echo "     (ou umount -l /mnt/gentoo/dev{/shm,/pts,} && umount -R /mnt/gentoo)"
 echo ""
-echo "  4. Redémarrer:"
+echo "  3. Redémarrer:"
 echo "     reboot"
 echo ""
-echo "  5. Retirer le LiveCD de VirtualBox"
+echo "  4. Retirer le LiveCD de VirtualBox"
 echo ""
 echo "🔑 INFORMATIONS DE CONNEXION:"
 echo "    Utilisateur: root"
-echo "    Mot de passe: gentoo123"
+echo "    Mot de passe: root"
 echo ""
 echo "📊 VÉRIFICATIONS APRÈS BOOT:"
 echo "    • uname -r          : Vérifier version du noyau"
@@ -921,8 +882,7 @@ echo "    • dmesg | less      : Messages du noyau"
 echo "    • tail -f /var/log/messages : Logs système"
 echo ""
 echo "📄 RAPPORT DU TP:"
-echo "    /root/rapport_tp2_openrc.txt"
-echo "    (Contient toutes les réponses aux questions et commandes utilisées)"
+echo "    ${RAPPORT}"
 echo ""
-echo "[SUCCESS] Votre Gentoo OpenRC est maintenant complètement opérationnel ! 🐧"
+log_success "Votre Gentoo OpenRC est maintenant prêt pour le premier boot ! 🐧"
 echo ""
