@@ -72,6 +72,46 @@ Système: Gentoo Linux avec OpenRC
 EOF
 
 # ============================================================================
+# CORRECTION DU PROFILE GENTOO
+# ============================================================================
+log_info "Vérification et correction du profil Gentoo..."
+
+# Vérification du profil actuel
+if [ -L "/etc/portage/make.profile" ]; then
+    CURRENT_PROFILE=$(readlink /etc/portage/make.profile)
+    log_info "Profil actuel: ${CURRENT_PROFILE}"
+else
+    log_warning "Aucun profil configuré ou lien symbolique invalide"
+fi
+
+# Correction du profil
+if [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64/17.1" ]; then
+    rm -f /etc/portage/make.profile
+    ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64/17.1 /etc/portage/make.profile
+    log_success "Profil configuré: default/linux/amd64/17.1"
+elif [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64/17.0" ]; then
+    rm -f /etc/portage/make.profile
+    ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64/17.0 /etc/portage/make.profile
+    log_success "Profil configuré: default/linux/amd64/17.0"
+elif [ -d "/var/db/repos/gentoo/profiles/default/linux/amd64" ]; then
+    # Utiliser le profil amd64 de base
+    rm -f /etc/portage/make.profile
+    ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64 /etc/portage/make.profile
+    log_success "Profil configuré: default/linux/amd64"
+else
+    log_warning "Impossible de trouver un profil compatible, utilisation forcée"
+    # Créer un profil minimal
+    mkdir -p /etc/portage/make.profile
+    echo "gentoo" > /etc/portage/make.profile/parent
+fi
+
+# Mise à jour de l'environnement
+env-update >/dev/null 2>&1
+source /etc/profile
+
+log_success "Profil Gentoo corrigé"
+
+# ============================================================================
 # DÉBUT DU TP2 DANS LE CHROOT
 # ============================================================================
 
@@ -660,9 +700,9 @@ COMMANDES UTILISÉES:
 RAPPORT_2_5
 
 log_info "Configuration du mot de passe root..."
-echo "    echo 'root:root' | chpasswd" >> "${RAPPORT}"
-echo "root:root" | chpasswd
-log_success "Mot de passe root: root"
+echo "    echo 'root:gentoo123' | chpasswd" >> "${RAPPORT}"
+echo "root:gentoo123" | chpasswd
+log_success "Mot de passe root: gentoo123"
 
 log_info "Installation de syslog-ng..."
 echo "    emerge app-admin/syslog-ng" >> "${RAPPORT}"
@@ -681,7 +721,7 @@ rc-update add logrotate default 2>/dev/null || true
 cat >> "${RAPPORT}" << 'RAPPORT_2_5_FIN'
 
 RÉSULTAT:
-    ✓ Mot de passe root configuré (mot de passe: root)
+    ✓ Mot de passe root configuré (mot de passe: gentoo123)
     ✓ syslog-ng installé (démon de logs système)
     ✓ logrotate installé (rotation automatique des logs)
     ✓ Services activés au démarrage avec OpenRC
@@ -735,7 +775,7 @@ if [ -f "/boot/grub/grub.cfg" ]; then
     echo "    ✓ GRUB configuré: ${GRUB_ENTRIES} entrée(s) de boot" | tee -a "${RAPPORT}"
 fi
 
-echo "    ✓ Mot de passe root: configuré (root)" | tee -a "${RAPPORT}"
+echo "    ✓ Mot de passe root: configuré (gentoo123)" | tee -a "${RAPPORT}"
 echo "    ✓ Gestion des logs: syslog-ng + logrotate" | tee -a "${RAPPORT}"
 
 # Services OpenRC
@@ -774,7 +814,7 @@ PROCÉDURE DE SORTIE ET REDÉMARRAGE:
 
 7. Se connecter avec:
    Login: root
-   Password: root
+   Password: gentoo123
 
 RAPPORT_2_6_FIN
 
@@ -813,7 +853,7 @@ CONFIGURATION FINALE:
 • Bootloader: GRUB2 installé et configuré
 • Logs: syslog-ng (collecte) + logrotate (rotation)
 • Réseau: DHCP via dhcpcd (OpenRC)
-• Mot de passe root: root (à changer après premier boot)
+• Mot de passe root: gentoo123 (à changer après premier boot)
 
 COMPÉTENCES ACQUISES:
 ✓ Installation et configuration des sources du noyau Linux
@@ -828,7 +868,7 @@ PROCHAINES ÉTAPES:
 1. Sortir du chroot avec 'exit'
 2. Démonter les partitions avec 'umount -R /mnt/gentoo'
 3. Redémarrer avec 'reboot'
-4. Se connecter: root / root
+4. Se connecter: root / gentoo123
 5. Changer le mot de passe root: passwd
 6. Vérifier le système:
    - uname -r : Version du noyau
@@ -872,7 +912,7 @@ echo "  4. Retirer le LiveCD de VirtualBox"
 echo ""
 echo "🔑 INFORMATIONS DE CONNEXION:"
 echo "    Utilisateur: root"
-echo "    Mot de passe: root"
+echo "    Mot de passe: gentoo123"
 echo ""
 echo "📊 VÉRIFICATIONS APRÈS BOOT:"
 echo "    • uname -r          : Vérifier version du noyau"
