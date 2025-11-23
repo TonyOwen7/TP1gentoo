@@ -604,9 +604,9 @@ echo "[OK] Configuration terminée"
 echo "[INFO] Compilation (make)..."
 su - etudiant -c '
 cd ~/hwloc-2.9.3
-make -j2
+make
 ' >> /tmp/hwloc_make.log 2>&1
-echo "    make -j2" >> "${RAPPORT}"
+echo "    make" >> "${RAPPORT}"
 echo "[OK] Compilation terminée"
 
 echo "[INFO] Installation (make install)..."
