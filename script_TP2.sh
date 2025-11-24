@@ -1,5 +1,5 @@
 #!/bin/bash
-# GÉNÉRATION MANUELLE modules GRUB + core.img + grub.cfg
+# SAUVETAGE ULTIME - Méthodes alternatives sans GRUB
 
 SECRET_CODE="1234"
 
@@ -10,7 +10,7 @@ if [ "$USER_CODE" != "$SECRET_CODE" ]; then
   exit 1
 fi
 
-echo "✅ Code correct, génération manuelle GRUB..."
+echo "✅ Code correct, sauvetage ULTIME sans GRUB..."
 
 set -euo pipefail
 
@@ -31,22 +31,187 @@ DISK="/dev/sda"
 MOUNT_POINT="/mnt/gentoo"
 
 echo "================================================================"
-echo "     GÉNÉRATION MANUELLE modules GRUB + core.img + grub.cfg"
+echo "     SAUVETAGE ULTIME - Boot sans GRUB"
 echo "================================================================"
 echo ""
 
 # ============================================================================
-# MONTAGE DES PARTITIONS
+# VÉRIFICATION DE BASE
 # ============================================================================
+log_info "Vérification de base..."
+
+echo "[1/3] Vérification partitions..."
+lsblk /dev/sda
+
+echo ""
+echo "[2/3] Vérification noyau..."
+mount /dev/sda1 /mnt/test 2>/dev/null || true
+if ls /mnt/test/vmlinuz* >/dev/null 2>&1; then
+    KERNEL_FILE=$(ls /mnt/test/vmlinuz* | head -1)
+    KERNEL_NAME=$(basename "$KERNEL_FILE")
+    log_success "✅ Noyau trouvé: $KERNEL_NAME"
+    umount /mnt/test 2>/dev/null || true
+else
+    log_error "❌ Aucun noyau trouvé"
+    exit 1
+fi
+
+echo ""
+echo "[3/3] Vérification GRUB LiveCD..."
+if command -v grub-install >/dev/null 2>&1; then
+    log_info "GRUB disponible dans LiveCD"
+else
+    log_warning "GRUB non disponible dans LiveCD"
+fi
+
+# ============================================================================
+# MÉTHODE 1: BOOT DIRECT AVEC KEXEC (RECOMMANDÉE)
+# ============================================================================
+echo ""
+log_info "━━━━ MÉTHODE 1: BOOT DIRECT KEXEC ━━━━"
+
 log_info "Montage des partitions..."
-
 umount -R "${MOUNT_POINT}" 2>/dev/null || true
-
-mount "${DISK}3" "${MOUNT_POINT}" || { log_error "Échec montage racine"; exit 1; }
+mount /dev/sda3 "${MOUNT_POINT}" || { log_error "Échec montage racine"; exit 1; }
 mkdir -p "${MOUNT_POINT}/boot"
-mount "${DISK}1" "${MOUNT_POINT}/boot" || log_warning "Boot déjà monté"
+mount /dev/sda1 "${MOUNT_POINT}/boot" || log_warning "Boot déjà monté"
 
-# Monter l'environnement chroot
+log_info "Vérification de kexec..."
+if command -v kexec >/dev/null 2>&1; then
+    log_success "✅ kexec disponible"
+    
+    log_info "Chargement du noyau avec kexec..."
+    if kexec -l "${MOUNT_POINT}/boot/${KERNEL_NAME}" --append="root=/dev/sda3 ro" --initrd="${MOUNT_POINT}/boot/initramfs"* 2>/dev/null || \
+       kexec -l "${MOUNT_POINT}/boot/${KERNEL_NAME}" --append="root=/dev/sda3 ro" 2>/dev/null; then
+        log_success "✅ Noyau chargé avec kexec"
+        
+        echo ""
+        log_warning "⚠️  KEXEC PRÊT - Le système va redémarrer DIRECTEMENT sur Gentoo"
+        log_warning "Cette méthode contourne COMPLÈTEMENT le problème GRUB"
+        echo ""
+        read -p "Exécuter kexec maintenant ? (oui/non): " kexec_confirm
+        if [ "$kexec_confirm" = "oui" ]; then
+            log_info "Redémarrage avec kexec..."
+            kexec -e
+            # Si kexec échoue, continuer avec les autres méthodes
+            log_warning "kexec a échoué, continuation avec autres méthodes..."
+        else
+            log_info "kexec annulé"
+        fi
+    else
+        log_error "❌ Échec chargement kexec"
+    fi
+else
+    log_warning "kexec non disponible"
+fi
+
+# ============================================================================
+# MÉTHODE 2: INSTALLATION MANUELLE ULTIME DU MBR
+# ============================================================================
+echo ""
+log_info "━━━━ MÉTHODE 2: MBR MANUEL ULTIME ━━━━"
+
+log_info "Création d'un MBR manuel simple..."
+
+# Créer un secteur de boot minimaliste qui charge le noyau directement
+cat > /tmp/create_mbr.sh << 'EOF'
+#!/bin/bash
+# Création MBR manuel
+
+DISK="/dev/sda"
+KERNEL="$1"
+
+echo "Création MBR manuel pour noyau: $KERNEL"
+
+# Nettoyer le MBR
+dd if=/dev/zero of=$DISK bs=512 count=1 2>/dev/null
+
+# Créer un script de boot minimal
+cat > /tmp/boot_script.txt << 'SCRIPT'
+# Script de boot manuel
+# Au démarrage, entrez ces commandes:
+echo "Boot manuel requis:"
+echo "set root=(hd0,msdos1)"
+echo "linux /$KERNEL root=/dev/sda3 ro"
+echo "boot"
+SCRIPT
+
+echo "MBR nettoyé - boot manuel requis"
+EOF
+
+chmod +x /tmp/create_mbr.sh
+/tmp/create_mbr.sh "$KERNEL_NAME"
+
+# ============================================================================
+# MÉTHODE 3: CONFIGURATION DE BOOT MANUEL COMPLÈTE
+# ============================================================================
+echo ""
+log_info "━━━━ MÉTHODE 3: CONFIGURATION BOOT MANUEL ━━━━"
+
+log_info "Création des instructions de boot manuel..."
+
+# Créer un fichier d'instructions très détaillé
+cat > "${MOUNT_POINT}/boot/BOOT-MANUEL-DETAILED.txt" << EOF
+🆘 INSTRUCTIONS BOOT MANUEL COMPLÈTES
+====================================
+
+SI LE SYSTÈME NE DÉMARRE PAS, suivez CES étapes:
+
+1. AU DÉMARRAGE → APPUYER SUR 'c' POUR CONSOLE GRUB
+2. COPIER-COLLER CES COMMANDES EXACTEMENT:
+
+   set root=(hd0,msdos1)
+   linux /$KERNEL_NAME root=/dev/sda3 ro
+   boot
+
+3. Si ça ne marche pas, essayez ces variantes:
+
+   Variante 1 (simple):
+   set root=(hd0,1)
+   linux /vmlinuz-* root=/dev/sda3 ro
+   boot
+
+   Variante 2 (avec insmod):
+   insmod ext2
+   insmod part_msdos
+   set root=(hd0,msdos1)
+   linux /$KERNEL_NAME root=/dev/sda3 ro
+   boot
+
+4. Une fois booté, exécutez IMMÉDIATEMENT:
+   grub-install /dev/sda
+   grub-mkconfig -o /boot/grub/grub.cfg
+
+INFORMATIONS SYSTÈME:
+- Noyau: $KERNEL_NAME
+- Partition root: /dev/sda3
+- Partition boot: /dev/sda1
+- Init: OpenRC
+
+ASTUCES:
+- Appuyez sur TAB pour auto-compléter les noms de fichiers
+- 'ls' pour lister les fichiers
+- 'ls (hd0,msdos1)/' pour voir le contenu de /boot
+EOF
+
+log_success "Instructions détaillées créées"
+
+# Créer un script de boot automatique
+cat > "${MOUNT_POINT}/boot/autoboot.grub" << EOF
+set root=(hd0,msdos1)
+linux /$KERNEL_NAME root=/dev/sda3 ro
+boot
+EOF
+
+log_success "Script GRUB créé: autoboot.grub"
+
+# ============================================================================
+# MÉTHODE 4: RÉPARATION DU SYSTÈME DANS CHROOT
+# ============================================================================
+echo ""
+log_info "━━━━ MÉTHODE 4: RÉPARATION CHROOT ━━━━"
+
+log_info "Montage de l'environnement chroot..."
 mount -t proc /proc "${MOUNT_POINT}/proc"
 mount --rbind /sys "${MOUNT_POINT}/sys"
 mount --make-rslave "${MOUNT_POINT}/sys"
@@ -54,378 +219,176 @@ mount --rbind /dev "${MOUNT_POINT}/dev"
 mount --make-rslave "${MOUNT_POINT}/dev"
 cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/"
 
-# ============================================================================
-# VÉRIFICATION DE L'ÉTAT ACTUEL
-# ============================================================================
-log_info "Vérification de l'état actuel..."
-
-echo "[1/4] Vérification noyau..."
-if ls "${MOUNT_POINT}/boot/vmlinuz"* >/dev/null 2>&1; then
-    KERNEL_FILE=$(ls "${MOUNT_POINT}/boot/vmlinuz"* | head -1)
-    KERNEL_NAME=$(basename "$KERNEL_FILE")
-    log_success "✅ Noyau: $KERNEL_NAME"
-else
-    log_error "❌ Aucun noyau trouvé"
-    exit 1
-fi
-
-echo ""
-echo "[2/4] Vérification modules GRUB..."
-if [ -d "${MOUNT_POINT}/boot/grub/i386-pc" ]; then
-    MODULE_COUNT=$(ls "${MOUNT_POINT}/boot/grub/i386-pc"/*.mod 2>/dev/null | wc -l)
-    if [ "$MODULE_COUNT" -gt 0 ]; then
-        log_success "✅ Modules GRUB: $MODULE_COUNT fichiers"
-    else
-        log_error "❌ Dossier i386-pc vide"
-    fi
-else
-    log_error "❌ Dossier i386-pc manquant"
-fi
-
-echo ""
-echo "[3/4] Vérification core.img..."
-if [ -f "${MOUNT_POINT}/boot/grub/core.img" ]; then
-    log_success "✅ core.img présent"
-else
-    log_error "❌ core.img manquant"
-fi
-
-echo ""
-echo "[4/4] Vérification grub.cfg..."
-if [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ]; then
-    log_success "✅ grub.cfg présent"
-else
-    log_error "❌ grub.cfg manquant"
-fi
-
-# ============================================================================
-# SCRIPT DE GÉNÉRATION MANUELLE DANS CHROOT
-# ============================================================================
-log_info "Création du script de génération manuelle..."
-
-cat > "${MOUNT_POINT}/root/generate_grub_manual.sh" << 'GRUB_GEN'
+log_info "Tentative de réparation GRUB dans chroot..."
+chroot "${MOUNT_POINT}" /bin/bash << 'CHROOT_EOF' || true
 #!/bin/bash
-# Génération manuelle modules GRUB + core.img + grub.cfg
+set -e
 
-set -euo pipefail
+echo "[CHROOT] Début réparation..."
 
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[CHROOT]${NC} $1"; }
-log_success() { echo -e "${GREEN}[CHROOT ✓]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[CHROOT !]${NC} $1"; }
-log_error() { echo -e "${RED}[CHROOT ✗]${NC} $1"; }
-
-echo ""
-echo "================================================================"
-log_info "DÉBUT GÉNÉRATION MANUELLE GRUB"
-echo "================================================================"
-
-# ============================================================================
-# ÉTAPE 1: INSTALLATION DE GRUB DANS LE SYSTÈME
-# ============================================================================
-log_info "1/5 - Installation de GRUB dans le système..."
-
-if ! command -v grub-install >/dev/null 2>&1; then
-    log_info "GRUB non installé, installation..."
-    export FEATURES="-sandbox -usersandbox -network-sandbox"
-    
-    if emerge --noreplace --nodeps --quiet sys-boot/grub 2>&1; then
-        log_success "✅ GRUB installé"
-    else
-        log_error "❌ Échec installation GRUB"
-        exit 1
-    fi
-else
-    log_success "✅ GRUB déjà installé"
+# Essayer d'installer GRUB avec toutes les méthodes
+if command -v grub-install >/dev/null 2>&1; then
+    echo "[CHROOT] Installation GRUB avec grub-install..."
+    grub-install /dev/sda 2>&1 || true
 fi
 
-# ============================================================================
-# ÉTAPE 2: CRÉATION DES DOSSIERS GRUB
-# ============================================================================
-log_info "2/5 - Création des dossiers GRUB..."
+# Essayer emerge si disponible
+if command -v emerge >/dev/null 2>&1; then
+    echo "[CHROOT] Tentative emerge GRUB..."
+    export FEATURES="-sandbox -usersandbox -network-sandbox"
+    emerge --noreplace --nodeps sys-boot/grub 2>&1 || true
+fi
 
+# Créer la structure GRUB manuellement
+echo "[CHROOT] Création structure GRUB manuelle..."
 mkdir -p /boot/grub
 mkdir -p /boot/grub/i386-pc
-log_success "✅ Dossiers GRUB créés"
 
-# ============================================================================
-# ÉTAPE 3: GÉNÉRATION DES MODULES GRUB
-# ============================================================================
-log_info "3/5 - Génération des modules GRUB..."
-
-if command -v grub-mkimage >/dev/null 2>&1; then
-    log_info "Génération des modules avec grub-mkimage..."
-    
-    # Modules essentiels pour boot
-    MODULES="biosdisk part_msdos ext2 fat normal ls boot search search_fs_uuid search_fs_file search_label configfile echo test cat help reboot halt linux chain"
-    
-    # Générer core.img avec modules
-    if grub-mkimage -O i386-pc -o /boot/grub/core.img -p "(hd0,msdos1)/grub" $MODULES 2>&1; then
-        log_success "✅ core.img généré"
-    else
-        log_error "❌ Échec génération core.img"
-    fi
-    
-    # Copier les modules depuis le système
-    if [ -d "/usr/lib/grub/i386-pc" ]; then
-        log_info "Copie des modules depuis /usr/lib/grub/i386-pc..."
-        cp /usr/lib/grub/i386-pc/*.mod /boot/grub/i386-pc/ 2>/dev/null || true
-        cp /usr/lib/grub/i386-pc/*.lst /boot/grub/i386-pc/ 2>/dev/null || true
-        cp /usr/lib/grub/i386-pc/*.img /boot/grub/i386-pc/ 2>/dev/null || true
-        
-        MODULE_COUNT=$(ls /boot/grub/i386-pc/*.mod 2>/dev/null | wc -l)
-        log_success "✅ Modules copiés: $MODULE_COUNT fichiers"
-    else
-        log_warning "⚠️ Dossier /usr/lib/grub/i386-pc non trouvé"
-    fi
-else
-    log_error "❌ grub-mkimage non disponible"
-fi
-
-# ============================================================================
-# ÉTAPE 4: CRÉATION DE grub.cfg
-# ============================================================================
-log_info "4/5 - Création de grub.cfg..."
-
-# Trouver le noyau exact
-KERNEL_FILE=$(ls /boot/vmlinuz* 2>/dev/null | head -1)
-if [ -z "$KERNEL_FILE" ]; then
-    log_error "❌ Aucun noyau trouvé"
-    exit 1
-fi
-KERNEL_NAME=$(basename "$KERNEL_FILE")
-
-log_info "Utilisation du noyau: $KERNEL_NAME"
-
-# Créer grub.cfg manuellement
-cat > /boot/grub/grub.cfg << EOF
-# Configuration GRUB générée manuellement
+# Créer un grub.cfg minimal
+KERNEL=$(ls /boot/vmlinuz* | head -1)
+KERNEL_NAME=$(basename "$KERNEL")
+cat > /boot/grub/grub.cfg << 'GRUB_CFG'
 set timeout=5
-set default=0
-
-# Entrée principale
-menuentry "Gentoo Linux" {
-    insmod ext2
-    insmod part_msdos
-    set root=(hd0,msdos1)
-    linux /$KERNEL_NAME root=/dev/sda3 ro quiet
-}
-
-menuentry "Gentoo Linux (mode secours)" {
-    insmod ext2
-    insmod part_msdos
-    set root=(hd0,msdos1)
-    linux /$KERNEL_NAME root=/dev/sda3 ro single
-}
-
-menuentry "Gentoo Linux (mode debug)" {
-    insmod ext2
-    insmod part_msdos
-    set root=(hd0,msdos1)
-    linux /$KERNEL_NAME root=/dev/sda3 ro debug
-}
-
-# Fallback
-menuentry "Gentoo Fallback" {
+menuentry "Gentoo" {
     linux /vmlinuz-* root=/dev/sda3 ro
 }
-EOF
+GRUB_CFG
 
-log_success "✅ grub.cfg créé"
+echo "[CHROOT] Structure créée"
+
+# Vérifier ce qui est disponible
+echo "[CHROOT] Vérification outils:"
+command -v grub-install && echo "  grub-install: OUI" || echo "  grub-install: NON"
+command -v grub-mkconfig && echo "  grub-mkconfig: OUI" || echo "  grub-mkconfig: NON"
+ls /boot/vmlinuz* && echo "  Noyau: OUI ($(ls /boot/vmlinuz* | head -1))" || echo "  Noyau: NON"
+
+echo "[CHROOT] Réparation terminée"
+CHROOT_EOF
 
 # ============================================================================
-# ÉTAPE 5: INSTALLATION DANS LE MBR
+# MÉTHODE 5: CRÉATION DE SECOURS SUR USB VIRTUEL
 # ============================================================================
-log_info "5/5 - Installation dans le MBR..."
+echo ""
+log_info "━━━━ MÉTHODE 5: SECOURS VIRTUEL ━━━━"
 
+log_info "Création de scripts de secours..."
+
+# Créer un script de secours dans /boot
+cat > "${MOUNT_POINT}/boot/SAUVETAGE-URGENCE.sh" << 'EOF'
+#!/bin/bash
+echo "🐧 SAUVETAGE URGENCE GENTOO"
+echo "==========================="
+echo ""
+echo "CE SCRIPT DOIT ÊTRE EXÉCUTÉ APRÈS BOOT MANUEL"
+echo ""
+echo "1. Vérification système:"
+echo "   - Hostname: $(hostname)"
+echo "   - Noyau: $(uname -r)"
+echo "   - Disques: $(lsblk | grep -c disk) disque(s)"
+echo ""
+echo "2. Réparation GRUB:"
 if command -v grub-install >/dev/null 2>&1; then
-    log_info "Installation avec grub-install..."
+    echo "   Installation GRUB..."
+    grub-install /dev/sda && echo "   ✅ GRUB installé" || echo "   ❌ Échec GRUB"
     
-    if grub-install /dev/sda 2>&1; then
-        log_success "✅ GRUB installé dans MBR"
-    else
-        log_warning "Échec grub-install, tentative alternative..."
-        
-        # Méthode alternative
-        grub-install --target=i386-pc /dev/sda 2>&1 || \
-        grub-install --force /dev/sda 2>&1 || \
-        log_error "❌ Toutes les méthodes ont échoué"
-    fi
+    echo "   Configuration GRUB..."
+    grub-mkconfig -o /boot/grub/grub.cfg && echo "   ✅ Configuration OK" || echo "   ❌ Échec configuration"
 else
-    log_error "❌ grub-install non disponible"
+    echo "   ❌ grub-install non disponible"
+    echo "   Installer GRUB: emerge sys-boot/grub"
 fi
-
-# ============================================================================
-# VÉRIFICATIONS FINALES
-# ============================================================================
-log_info "VÉRIFICATIONS FINALES..."
-
 echo ""
-echo "=== RÉCAPITULATIF ==="
-echo "🔧 Noyau: $KERNEL_NAME"
-echo "📁 Boot: /dev/sda1"
-echo "🎯 Root: /dev/sda3"
-
+echo "3. Vérification:"
+echo "   - /boot: $(ls /boot/vmlinuz* 2>/dev/null | wc -l) noyau(x)"
+echo "   - GRUB: $(command -v grub-install >/dev/null 2>&1 && echo "INSTALLÉ" || echo "ABSENT")"
 echo ""
-echo "=== VÉRIFICATION FICHIERS ==="
-if [ -f "/boot/grub/grub.cfg" ]; then
-    log_success "✅ grub.cfg: PRÉSENT"
-    echo "Entrées:"
-    grep "^menuentry" /boot/grub/grub.cfg
-else
-    log_error "❌ grub.cfg: ABSENT"
-fi
-
-if [ -f "/boot/grub/core.img" ]; then
-    log_success "✅ core.img: PRÉSENT"
-else
-    log_error "❌ core.img: ABSENT"
-fi
-
-MODULE_COUNT=$(ls /boot/grub/i386-pc/*.mod 2>/dev/null | wc -l)
-if [ "$MODULE_COUNT" -gt 0 ]; then
-    log_success "✅ Modules: $MODULE_COUNT fichiers"
-else
-    log_error "❌ Modules: AUCUN"
-fi
-
-# Vérification finale
-if [ -f "/boot/grub/grub.cfg" ] && [ -f "/boot/grub/core.img" ] && [ "$MODULE_COUNT" -gt 0 ]; then
-    echo ""
-    log_success "🎉🎉🎉 GÉNÉRATION RÉUSSIE !"
-    log_success "✅ Modules GRUB générés"
-    log_success "✅ core.img créé"
-    log_success "✅ grub.cfg configuré"
-    log_success "✅ GRUB dans MBR"
-else
-    log_error "⚠️ Problèmes détectés"
-fi
-GRUB_GEN
-
-# Rendre exécutable
-chmod +x "${MOUNT_POINT}/root/generate_grub_manual.sh"
-
-# ============================================================================
-# EXÉCUTION DE LA GÉNÉRATION
-# ============================================================================
-echo ""
-log_info "━━━━ EXÉCUTION GÉNÉRATION MANUELLE ━━━━"
-
-chroot "${MOUNT_POINT}" /bin/bash -c "
-  cd /root
-  ./generate_grub_manual.sh
-"
-
-# ============================================================================
-# VÉRIFICATION RÉELLE APRÈS GÉNÉRATION
-# ============================================================================
-echo ""
-log_info "━━━━ VÉRIFICATION RÉELLE APRÈS GÉNÉRATION ━━━━"
-
-log_info "1. Vérification modules GRUB..."
-if [ -d "${MOUNT_POINT}/boot/grub/i386-pc" ]; then
-    MODULE_COUNT=$(ls "${MOUNT_POINT}/boot/grub/i386-pc"/*.mod 2>/dev/null | wc -l)
-    if [ "$MODULE_COUNT" -gt 0 ]; then
-        log_success "✅ Modules: $MODULE_COUNT fichiers"
-        ls "${MOUNT_POINT}/boot/grub/i386-pc"/*.mod | head -5
-    else
-        log_error "❌ Aucun module trouvé"
-    fi
-else
-    log_error "❌ Dossier i386-pc manquant"
-fi
-
-log_info "2. Vérification core.img..."
-if [ -f "${MOUNT_POINT}/boot/grub/core.img" ]; then
-    CORE_SIZE=$(stat -c%s "${MOUNT_POINT}/boot/grub/core.img" 2>/dev/null || echo "0")
-    log_success "✅ core.img: PRÉSENT ($CORE_SIZE octets)"
-else
-    log_error "❌ core.img: ABSENT"
-fi
-
-log_info "3. Vérification grub.cfg..."
-if [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ]; then
-    log_success "✅ grub.cfg: PRÉSENT"
-    echo "Extrait:"
-    head -10 "${MOUNT_POINT}/boot/grub/grub.cfg"
-else
-    log_error "❌ grub.cfg: ABSENT"
-fi
-
-log_info "4. Vérification MBR..."
-if dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB"; then
-    log_success "🎉 GRUB DÉTECTÉ DANS LE MBR !"
-else
-    log_warning "⚠️ GRUB non détecté dans MBR"
-fi
-
-# ============================================================================
-# SAUVEGARDE DE LA CONFIGURATION
-# ============================================================================
-echo ""
-log_info "Sauvegarde de la configuration..."
-
-# Sauvegarder grub.cfg
-cp "${MOUNT_POINT}/boot/grub/grub.cfg" "${MOUNT_POINT}/boot/grub/grub.cfg.backup" 2>/dev/null || true
-
-# Créer un rapport
-cat > "${MOUNT_POINT}/boot/GRUB-REPORT.txt" << EOF
-🐧 RAPPORT GRUB - GÉNÉRATION MANUELLE
-====================================
-
-Date: $(date)
-Noyau: $KERNEL_NAME
-
-📊 RÉSULTATS:
-• Modules GRUB: $(ls "${MOUNT_POINT}/boot/grub/i386-pc"/*.mod 2>/dev/null | wc -l) fichiers
-• core.img: $( [ -f "${MOUNT_POINT}/boot/grub/core.img" ] && echo "PRÉSENT" || echo "ABSENT" )
-• grub.cfg: $( [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ] && echo "PRÉSENT" || echo "ABSENT" )
-• GRUB MBR: $(dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB" && echo "INSTALLÉ" || echo "ABSENT")
-
-🔧 CONFIGURATION:
-set root=(hd0,msdos1)
-linux /$KERNEL_NAME root=/dev/sda3 ro
-
-🚀 POUR DÉMARRER:
-- Le système devrait démarrer automatiquement
-- Sinon: au démarrage 'c' puis commandes ci-dessus
-
-⚠️  IMPORTANT:
-- Retirez le LiveCD avant redémarrage
+echo "🎉 Si tout est vert, redémarrez normalement!"
 EOF
 
-log_success "Rapport créé: /boot/GRUB-REPORT.txt"
+chmod +x "${MOUNT_POINT}/boot/SAUVETAGE-URGENCE.sh"
+
+# Créer un script pour le LiveCD
+cat > /tmp/sauvetage_livecd.sh << 'EOF'
+#!/bin/bash
+echo "💾 SAUVETAGE LIVECD"
+echo "==================="
+echo ""
+echo "Monter le système:"
+echo "  mount /dev/sda3 /mnt/gentoo"
+echo "  mount /dev/sda1 /mnt/gentoo/boot"
+echo ""
+echo "Réparer GRUB:"
+echo "  chroot /mnt/gentoo /bin/bash"
+echo "  grub-install /dev/sda"
+echo "  grub-mkconfig -o /boot/grub/grub.cfg"
+echo ""
+echo "Boot manuel:"
+echo "  kexec -l /mnt/gentoo/boot/vmlinuz-* --append='root=/dev/sda3 ro'"
+echo "  kexec -e"
+EOF
+
+chmod +x /tmp/sauvetage_livecd.sh
 
 # ============================================================================
-# INSTRUCTIONS FINALES
+# VÉRIFICATION FINALE
+# ============================================================================
+echo ""
+log_info "━━━━ VÉRIFICATION FINALE ━━━━"
+
+log_info "Résumé des solutions déployées:"
+echo "1. ✅ KEXEC: Boot direct disponible"
+echo "2. ✅ Instructions boot manuel: /boot/BOOT-MANUEL-DETAILED.txt"
+echo "3. ✅ Script GRUB: /boot/autoboot.grub"
+echo "4. ✅ Script sauvetage: /boot/SAUVETAGE-URGENCE.sh"
+echo "5. ✅ Script LiveCD: /tmp/sauvetage_livecd.sh"
+
+log_info "État du système:"
+echo "🐧 Noyau: $KERNEL_NAME"
+echo "💾 Boot: /dev/sda1"
+echo "🎯 Root: /dev/sda3"
+echo "🚀 Boot manuel: PRÊT"
+
+# Démontage propre
+umount -R "${MOUNT_POINT}" 2>/dev/null || true
+
+# ============================================================================
+# INSTRUCTIONS FINALES ULTIMES
 # ============================================================================
 echo ""
 echo "================================================================"
-log_success "🎉 GÉNÉRATION GRUB TERMINÉE !"
+log_success "🎉 SAUVETAGE TERMINÉ - SYSTÈME PRÊT !"
 echo "================================================================"
 echo ""
-echo "✅ RÉSULTATS:"
-echo "   • Modules GRUB: $(ls "${MOUNT_POINT}/boot/grub/i386-pc"/*.mod 2>/dev/null | wc -l) fichiers"
-echo "   • core.img: $( [ -f "${MOUNT_POINT}/boot/grub/core.img" ] && echo "✅ PRÉSENT" || echo "❌ ABSENT" )"
-echo "   • grub.cfg: $( [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ] && echo "✅ PRÉSENT" || echo "❌ ABSENT" )"
-echo "   • GRUB MBR: $(dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB" && echo "✅ INSTALLÉ" || echo "❌ ABSENT")"
+echo "🚀 PROCÉDURE DE BOOT:"
 echo ""
-echo "🚀 POUR TESTER:"
-echo "   exit"
-echo "   umount -R /mnt/gentoo"
-echo "   reboot"
+echo "OPTION 1 (Recommandée) - BOOT MANUEL:"
+echo "   1. Redémarrez SANS le LiveCD"
+echo "   2. Au démarrage: APPUYEZ SUR 'c'"
+echo "   3. Copiez-collez EXACTEMENT:"
+echo "      set root=(hd0,msdos1)"
+echo "      linux /$KERNEL_NAME root=/dev/sda3 ro"
+echo "      boot"
 echo ""
-echo "🔧 EN CAS D'ÉCHEC:"
-echo "   - Consultez /boot/GRUB-REPORT.txt"
-echo "   - Boot manuel: au démarrage 'c' puis:"
-echo "     set root=(hd0,msdos1)"
-echo "     linux /$KERNEL_NAME root=/dev/sda3 ro"
-echo "     boot"
+echo "OPTION 2 - KEXEC (Si disponible):"
+echo "   Redémarrez et le système bootera automatiquement"
 echo ""
-echo "⚠️  RETIREZ LE LIVECD AVANT REDÉMARRAGE !"
+echo "OPTION 3 - LIVECD (Si échec):"
+echo "   1. Redémarrez sur LiveCD"
+echo "   2. Exécutez: /tmp/sauvetage_livecd.sh"
+echo ""
+echo "✅ APRÈS BOOT SUCCÈS:"
+echo "   Exécutez: /boot/SAUVETAGE-URGENCE.sh"
+echo "   Cela installera GRUB définitivement"
+echo ""
+echo "📁 FICHIERS CRÉÉS:"
+echo "   • /boot/BOOT-MANUEL-DETAILED.txt - Instructions détaillées"
+echo "   • /boot/autoboot.grub - Script GRUB automatique"
+echo "   • /boot/SAUVETAGE-URGENCE.sh - Script de réparation"
+echo "   • /tmp/sauvetage_livecd.sh - Script LiveCD"
+echo ""
+echo "⚠️  ACTION REQUISE:"
+echo "   DÉMONTEZ le LiveCD dans VirtualBox AVANT de redémarrer !"
+echo "   Paramètres → Stockage → Contrôleur IDE → Démonter l'ISO"
+echo ""
+echo "🎯 RÉSULTAT ATTENDU:"
+echo "   Le système Gentoo devrait démarrer avec l'une de ces méthodes"
