@@ -218,7 +218,7 @@ log_info "5/7 - Configuration boot (multi-méthodes)..."
 
 # Méthode 1: EFI STUB (UEFI direct)
 log_info "Méthode 1: Configuration EFI STUB..."
-cat > /boot/efi-startup.nsh << 'EFI_NSH'
+cat > /boot/efi-startup.nsh << EFI_NSH
 vmlinuz-${KERNEL_VER} root=LABEL=root ro quiet
 EFI_NSH
 log_success "Script EFI créé"
@@ -227,7 +227,7 @@ log_success "Script EFI créé"
 log_info "Méthode 2: Installation LILO..."
 if emerge --noreplace sys-boot/lilo 2>&1 | grep -q ">>>"; then
     # Configuration LILO
-    cat > /etc/lilo.conf << 'LILO_CONF'
+    cat > /etc/lilo.conf << LILO_CONF
 boot=/dev/sda
 compact
 prompt
@@ -258,7 +258,7 @@ if emerge --noreplace sys-boot/grub 2>&1 | grep -q ">>>"; then
     grub-install /dev/sda 2>&1 | tee /tmp/grub_install.log || log_warning "GRUB install échoué"
     
     # Créer grub.cfg MANUELLEMENT
-    cat > /boot/grub/grub.cfg << 'GRUB_CFG'
+    cat > /boot/grub/grub.cfg << GRUB_CFG
 set timeout=5
 set default=0
 
@@ -283,7 +283,7 @@ fi
 log_info "6/7 - Configuration système..."
 
 # FSTAB garanti
-cat > /etc/fstab << 'FSTAB_GARANTI'
+cat > /etc/fstab << FSTAB_GARANTI
 LABEL=root      /               ext4    defaults,noatime    0 1
 LABEL=boot      /boot           ext2    defaults            0 2
 LABEL=home      /home           ext4    defaults,noatime    0 2
@@ -295,7 +295,7 @@ echo "root:gentoo123" | chpasswd
 log_success "Mot de passe root: gentoo123"
 
 # Réseau basique
-cat > /etc/conf.d/net << 'RESEAU_BASIQUE'
+cat > /etc/conf.d/net << RESEAU_BASIQUE
 config_eth0="dhcp"
 config_enp0s3="dhcp"
 RESEAU_BASIQUE
@@ -406,12 +406,3 @@ echo ""
 echo "🔑 CONNEXION: root / gentoo123"
 echo ""
 ls -la "${MOUNT_POINT}/boot/vmlinuz"* 2>/dev/null || echo "⚠️  Utiliser noyau emergency si nécessaire"
-EOF
-
-# ============================================================================
-# LANCEMENT DU SCRIPT ULTIME
-# ============================================================================
-
-log_info "Création et lancement du script ultime..."
-chmod +x gentoo_ultime.sh
-./gentoo_ultime.sh
