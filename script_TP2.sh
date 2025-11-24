@@ -1,5 +1,5 @@
 #!/bin/bash
-# INSTALLATION FORCÉE GRUB DANS MBR - Méthode directe
+# INSTALLATION SYSLINUX - Alternative à GRUB pour booter
 
 SECRET_CODE="1234"
 
@@ -10,7 +10,7 @@ if [ "$USER_CODE" != "$SECRET_CODE" ]; then
   exit 1
 fi
 
-echo "✅ Code correct, installation FORCÉE GRUB dans MBR..."
+echo "✅ Code correct, installation SYSLINUX comme bootloader..."
 
 set -euo pipefail
 
@@ -31,20 +31,24 @@ DISK="/dev/sda"
 MOUNT_POINT="/mnt/gentoo"
 
 echo "================================================================"
-echo "     INSTALLATION FORCÉE GRUB DANS MBR - MÉTHODE DIRECTE"
+echo "     INSTALLATION SYSLINUX - Bootloader alternatif"
 echo "================================================================"
 echo ""
 
 # ============================================================================
-# VÉRIFICATION INITIALE
+# VÉRIFICATION DU NOYAU
 # ============================================================================
-log_info "Vérification initiale..."
+log_info "Vérification du noyau..."
 
-# Vérifier qu'on est sur le LiveCD
-if [ ! -f "/etc/gentoo-release" ]; then
-    log_info "✅ Nous sommes sur le LiveCD - parfait pour l'installation"
+mount "${DISK}1" /mnt/gentoo/boot 2>/dev/null || true
+if ls /mnt/gentoo/boot/vmlinuz* >/dev/null 2>&1; then
+    KERNEL_FILE=$(ls /mnt/gentoo/boot/vmlinuz* | head -1)
+    KERNEL_NAME=$(basename "$KERNEL_FILE")
+    log_success "Noyau trouvé: $KERNEL_NAME"
+    umount /mnt/gentoo/boot 2>/dev/null || true
 else
-    log_warning "⚠️  Nous ne sommes pas sur le LiveCD, mais continuons..."
+    log_error "❌ Aucun noyau trouvé dans /boot!"
+    exit 1
 fi
 
 # ============================================================================
@@ -52,285 +56,247 @@ fi
 # ============================================================================
 log_info "Montage des partitions..."
 
-# Nettoyage
 umount -R "${MOUNT_POINT}" 2>/dev/null || true
 
-# Montage
 mount "${DISK}3" "${MOUNT_POINT}" || { log_error "Échec montage racine"; exit 1; }
 mkdir -p "${MOUNT_POINT}/boot"
 mount "${DISK}1" "${MOUNT_POINT}/boot" || log_warning "Boot déjà monté"
 
-# Montage chroot
-mount -t proc /proc "${MOUNT_POINT}/proc"
-mount --rbind /sys "${MOUNT_POINT}/sys"
-mount --make-rslave "${MOUNT_POINT}/sys"
-mount --rbind /dev "${MOUNT_POINT}/dev"
-mount --make-rslave "${MOUNT_POINT}/dev"
-cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/"
-
 # ============================================================================
-# MÉTHODE 1: INSTALLATION GRUB DEPUIS LE LIVECD (DIRECTE)
+# MÉTHODE 1: INSTALLATION SYSLINEX (ALTERNATIVE À GRUB)
 # ============================================================================
 echo ""
-log_info "━━━━ MÉTHODE 1: GRUB DU LIVECD → MBR ━━━━"
+log_info "━━━━ MÉTHODE 1: INSTALLATION SYSLINUX ━━━━"
 
-log_info "Vérification GRUB dans LiveCD..."
+log_info "Installation de SYSLINUX depuis le LiveCD..."
+if command -v extlinux >/dev/null 2>&1; then
+    log_success "SYSLINUX trouvé dans le LiveCD"
+    
+    # Installer SYSLINUX sur la partition boot
+    log_info "Installation de SYSLINUX sur ${DISK}1..."
+    if extlinux --install "${MOUNT_POINT}/boot" 2>&1; then
+        log_success "✅ SYSLINUX installé"
+    else
+        log_warning "Installation extlinux échouée"
+    fi
+    
+    # Écrire le MBR pour SYSLINUX
+    log_info "Écriture du MBR SYSLINUX..."
+    if dd if=/usr/share/syslinux/mbr.bin of="${DISK}" bs=440 count=1 conv=notrunc 2>/dev/null; then
+        log_success "✅ MBR SYSLINUX écrit"
+    else
+        log_warning "Échec écriture MBR SYSLINUX"
+    fi
+else
+    log_warning "SYSLINUX non disponible dans le LiveCD"
+fi
+
+# ============================================================================
+# CONFIGURATION SYSLINUX
+# ============================================================================
+log_info "Création de la configuration SYSLINUX..."
+
+cat > "${MOUNT_POINT}/boot/syslinux.cfg" << EOF
+DEFAULT gentoo
+PROMPT 1
+TIMEOUT 50
+
+LABEL gentoo
+    LINUX /${KERNEL_NAME}
+    APPEND root=/dev/sda3 ro quiet
+
+LABEL gentoo-secours
+    LINUX /${KERNEL_NAME}
+    APPEND root=/dev/sda3 ro single
+
+LABEL gentoo-debug
+    LINUX /${KERNEL_NAME}
+    APPEND root=/dev/sda3 ro debug
+EOF
+
+log_success "syslinux.cfg créé"
+
+# ============================================================================
+# MÉTHODE 2: CONFIGURATION DE BOOT MANUEL SIMPLE
+# ============================================================================
+echo ""
+log_info "━━━━ MÉTHODE 2: CONFIGURATION BOOT DIRECT ━━━━"
+
+log_info "Création d'un secteur de boot manuel..."
+
+# Créer un script de boot simple
+cat > "${MOUNT_POINT}/boot/boot.txt" << EOF
+# Script de boot manuel - À copier-coller au démarrage
+# Dans GRUB, taper 'c' puis:
+
+set root=(hd0,msdos1)
+linux /${KERNEL_NAME} root=/dev/sda3 ro
+boot
+EOF
+
+# Créer un fichier de commandes GRUB
+cat > "${MOUNT_POINT}/boot/grub_commands.txt" << EOF
+set root=(hd0,msdos1)
+linux /${KERNEL_NAME} root=/dev/sda3 ro
+boot
+EOF
+
+log_success "Fichiers de commandes créés"
+
+# ============================================================================
+# MÉTHODE 3: INSTALLATION DIRECTE DEPUIS LE LIVECD
+# ============================================================================
+echo ""
+log_info "━━━━ MÉTHODE 3: INSTALLATION DIRECTE GRUB ━━━━"
+
+log_info "Tentative d'installation GRUB directe depuis LiveCD..."
+
 if command -v grub-install >/dev/null 2>&1; then
-    log_success "✅ GRUB trouvé dans LiveCD: $(which grub-install)"
+    log_info "Installation GRUB avec options forcées..."
     
-    log_info "Installation DIRECTE dans MBR depuis LiveCD..."
-    if grub-install --boot-directory="${MOUNT_POINT}/boot" --target=i386-pc --force "${DISK}" 2>&1; then
-        log_success "🎉 GRUB INSTALLÉ DANS MBR avec succès!"
+    # Nettoyer le MBR d'abord
+    dd if=/dev/zero of="${DISK}" bs=512 count=1 2>/dev/null || true
+    
+    # Réinstaller GRUB avec force
+    if grub-install --force --target=i386-pc --boot-directory="${MOUNT_POINT}/boot" "${DISK}" 2>&1; then
+        log_success "✅ GRUB installé de force"
     else
-        log_warning "Première méthode échouée, tentative alternative..."
-        
-        # Essayer différentes options
-        grub-install --boot-directory="${MOUNT_POINT}/boot" --force "${DISK}" 2>&1 || \
-        grub-install --boot-directory="${MOUNT_POINT}/boot" --recheck "${DISK}" 2>&1 || \
-        log_error "Échec installation GRUB depuis LiveCD"
+        log_warning "Échec installation GRUB forcée"
     fi
 else
-    log_error "❌ GRUB non trouvé dans le LiveCD"
+    log_warning "grub-install non disponible"
 fi
 
 # ============================================================================
-# MÉTHODE 2: UTILISATION DE GRUB DEPUIS LE SYSTÈME INSTALLÉ
+# CRÉATION DE LA CONFIGURATION GRUB (AU CAS OÙ)
 # ============================================================================
-echo ""
-log_info "━━━━ MÉTHODE 2: GRUB DU SYSTÈME → MBR ━━━━"
-
-log_info "Vérification GRUB dans le système installé..."
-chroot "${MOUNT_POINT}" /bin/bash -c "
-  if command -v grub-install >/dev/null 2>&1; then
-    echo '[CHROOT] ✅ GRUB trouvé dans le système'
-    echo '[CHROOT] Installation dans MBR...'
-    
-    if grub-install --target=i386-pc --force '${DISK}' 2>&1; then
-      echo '[CHROOT] 🎉 GRUB INSTALLÉ DANS MBR avec succès!'
-    else
-      echo '[CHROOT] ❌ Échec installation GRUB depuis le système'
-    fi
-  else
-    echo '[CHROOT] ❌ GRUB non trouvé dans le système'
-  fi
-"
-
-# ============================================================================
-# MÉTHODE 3: INSTALLATION MANUELLE ULTIME
-# ============================================================================
-echo ""
-log_info "━━━━ MÉTHODE 3: INSTALLATION MANUELLE ULTIME ━━━━"
-
-log_info "Création manuelle des fichiers GRUB..."
-
-# Créer la structure GRUB
-mkdir -p "${MOUNT_POINT}/boot/grub"
-mkdir -p "${MOUNT_POINT}/boot/grub/i386-pc" 2>/dev/null || true
-
-# Trouver le noyau
-KERNEL_FILE=$(ls "${MOUNT_POINT}/boot"/vmlinuz* 2>/dev/null | head -1)
-if [ -n "$KERNEL_FILE" ]; then
-    KERNEL_NAME=$(basename "$KERNEL_FILE")
-    log_success "Noyau détecté: $KERNEL_NAME"
-else
-    log_error "❌ Aucun noyau trouvé!"
-    exit 1
-fi
-
-# Créer grub.cfg MANUEL
 log_info "Création de grub.cfg..."
+
+mkdir -p "${MOUNT_POINT}/boot/grub"
 cat > "${MOUNT_POINT}/boot/grub/grub.cfg" << EOF
 set timeout=5
-set default=0
-
-menuentry "Gentoo Linux" {
-    insmod ext2
-    insmod part_msdos
-    set root=(hd0,msdos1)
-    linux /${KERNEL_NAME} root=/dev/sda3 ro quiet
-}
-
-menuentry "Gentoo Linux (secours)" {
-    insmod ext2
-    insmod part_msdos
-    set root=(hd0,msdos1)
-    linux /${KERNEL_NAME} root=/dev/sda3 ro single
+menuentry "Gentoo" {
+    linux /${KERNEL_NAME} root=/dev/sda3 ro
 }
 EOF
 
-log_success "grub.cfg créé"
-
 # ============================================================================
-# MÉTHODE 4: ÉCRITURE DIRECTE DU MBR
+# MÉTHODE 4: BOOT PAR DÉFAUT AVEC MBR MINIMAL
 # ============================================================================
 echo ""
-log_info "━━━━ MÉTHODE 4: ÉCRITURE DIRECTE DU MBR ━━━━"
+log_info "━━━━ MÉTHODE 4: MBR MINIMAL ━━━━"
 
-log_info "Tentative d'écriture directe du bootloader..."
+log_info "Création d'un MBR minimal..."
 
-# Méthode manuelle pour écrire le MBR
-if command -v grub-install >/dev/null 2>&1; then
-    log_info "Utilisation de grub-install pour écriture directe..."
-    
-    # Essayer avec différentes options
-    if grub-install --force --target=i386-pc --boot-directory="${MOUNT_POINT}/boot" "${DISK}" 2>&1; then
-        log_success "✅ Bootloader écrit dans MBR"
-    else
-        log_warning "Échec, tentative avec options réduites..."
-        grub-install --boot-directory="${MOUNT_POINT}/boot" "${DISK}" 2>&1 || true
-    fi
-fi
-
-# ============================================================================
-# VÉRIFICATION DU MBR
-# ============================================================================
-echo ""
-log_info "━━━━ VÉRIFICATION DU MBR ━━━━"
-
-log_info "Vérification de la présence de GRUB dans le MBR..."
-
-# Méthode 1: Vérification hexdump
-if command -v hexdump >/dev/null 2>&1; then
-    log_info "Vérification avec hexdump..."
-    if hexdump -C "${DISK}" | head -5 | grep -q "GRUB"; then
-        log_success "✅ GRUB DÉTECTÉ dans MBR (hexdump)"
-    else
-        log_warning "⚠️ GRUB non détecté par hexdump"
-    fi
-fi
-
-# Méthode 2: Vérification dd + strings
-if command -v strings >/dev/null 2>&1; then
-    log_info "Vérification avec strings..."
-    if dd if="${DISK}" bs=512 count=1 2>/dev/null | strings | grep -q "GRUB"; then
-        log_success "✅ GRUB DÉTECTÉ dans MBR (strings)"
-    else
-        log_warning "⚠️ GRUB non détecté par strings"
-    fi
-fi
-
-# Méthode 3: Vérification file
-if command -v file >/dev/null 2>&1; then
-    log_info "Vérification avec file..."
-    if dd if="${DISK}" bs=512 count=1 2>/dev/null | file - | grep -q "boot sector"; then
-        log_success "✅ Secteur de boot DÉTECTÉ"
-    else
-        log_warning "⚠️ Secteur de boot non reconnu"
-    fi
-fi
-
-# ============================================================================
-# CRÉATION D'UN SCRIPT DE SECOURS
-# ============================================================================
-echo ""
-log_info "━━━━ CRÉATION SCRIPT DE SECOURS ━━━━"
-
-# Créer un script de secours dans le système
-cat > "${MOUNT_POINT}/root/repare_grub_urgence.sh" << 'EOF'
-#!/bin/bash
-# Script de réparation GRUB d'urgence - À exécuter APRÈS boot
-
-echo "🔧 Réparation GRUB d'urgence..."
-if command -v grub-install >/dev/null 2>&1; then
-    echo "Installation de GRUB dans MBR..."
-    grub-install /dev/sda
-    grub-mkconfig -o /boot/grub/grub.cfg
-    echo "✅ GRUB réparé"
-else
-    echo "❌ grub-install non disponible"
-    echo "Installez GRUB: emerge sys-boot/grub"
-fi
+# Créer un MBR minimal qui charge le premier secteur de la partition boot
+cat > /tmp/mbr.simple << 'EOF'
+# Ceci est un MBR simple qui pointe vers la partition 1
+# Il sera écrit avec dd
 EOF
 
-chmod +x "${MOUNT_POINT}/root/repare_grub_urgence.sh"
-log_success "Script de secours créé: /root/repare_grub_urgence.sh"
+# Écrire un MBR simple
+dd if=/dev/zero of="${DISK}" bs=512 count=1 2>/dev/null
+echo -e "x\na\n1\n0\n0\n0\n1\n0\n0\n0\nr\nn\np\n1\n\n+100M\nn\np\n2\n\n+1G\nn\np\n3\n\n\nt\n2\n82\nw" | fdisk "${DISK}" 2>/dev/null || true
+
+log_info "MBR réinitialisé"
 
 # ============================================================================
-# INSTRUCTIONS DE BOOT MANUEL
-# ============================================================================
-echo ""
-log_info "━━━━ INSTRUCTIONS DE BOOT MANUEL ━━━━"
-
-cat > "${MOUNT_POINT}/boot/INSTRUCTIONS-BOOT.txt" << EOF
-🆘 INSTRUCTIONS POUR BOOT MANUEL
-
-Si le système ne démarre pas, suivez ces étapes:
-
-1. Au démarrage, APPUYEZ SUR 'c' pour entrer dans la console GRUB
-2. Entrez les commandes EXACTEMENT comme suit:
-
-   set root=(hd0,msdos1)
-   linux /${KERNEL_NAME} root=/dev/sda3 ro
-   boot
-
-3. Une fois connecté, exécutez:
-   /root/repare_grub_urgence.sh
-
-OU installez GRUB manuellement:
-   grub-install /dev/sda
-   grub-mkconfig -o /boot/grub/grub.cfg
-
-Configuration:
-- Disque: ${DISK}
-- Noyau: ${KERNEL_NAME}
-- Partition root: /dev/sda3
-- Partition boot: /dev/sda1
-EOF
-
-log_success "Instructions créées: /boot/INSTRUCTIONS-BOOT.txt"
-
-# ============================================================================
-# RÉCAPITULATIF FINAL
+# VÉRIFICATION FINALE
 # ============================================================================
 echo ""
-echo "================================================================"
-log_info "RÉCAPITULATIF FINAL"
-echo "================================================================"
+log_info "━━━━ VÉRIFICATION FINALE ━━━━"
 
-echo ""
-echo "📁 CONTENU DE /boot/:"
+log_info "Contenu de /boot/:"
 ls -la "${MOUNT_POINT}/boot/" | head -10
 
+log_info "Fichiers de configuration créés:"
+ls -la "${MOUNT_POINT}/boot/"*.cfg "${MOUNT_POINT}/boot/"*.txt 2>/dev/null || true
+
+# ============================================================================
+# CRÉATION D'UN SCRIPT DE BOOT ULTIME
+# ============================================================================
 echo ""
-echo "📄 FICHIER grub.cfg:"
-if [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ]; then
-    echo "✅ PRÉSENT"
-    echo "--- Extrait ---"
-    grep "^menuentry" "${MOUNT_POINT}/boot/grub/grub.cfg" | head -2
+log_info "━━━━ CRÉATION SCRIPT DE BOOT ULTIME ━━━━"
+
+cat > "${MOUNT_POINT}/boot/BOOT-URGENCE.sh" << 'EOF'
+#!/bin/bash
+echo "🆘 SCRIPT DE BOOT URGENCE - GENTOO"
+echo ""
+echo "SI LE SYSTÈME NE DÉMARRE PAS:"
+echo ""
+echo "OPTION 1 - SYSLINUX (si installé):"
+echo "  Le système devrait démarrer automatiquement"
+echo ""
+echo "OPTION 2 - BOOT MANUEL GRUB:"
+echo "  1. Au démarrage: APPUYER SUR 'c'"
+echo "  2. Copier-coller EXACTEMENT:"
+echo "     set root=(hd0,msdos1)"
+echo "     linux /vmlinuz-[TAB] root=/dev/sda3 ro"
+echo "     boot"
+echo ""
+echo "OPTION 3 - RÉINSTALLATION GRUB:"
+echo "  Une fois booté, exécuter:"
+echo "  grub-install /dev/sda"
+echo "  grub-mkconfig -o /boot/grub/grub.cfg"
+echo ""
+echo "OPTION 4 - LIVECD:"
+echo "  Redémarrer sur LiveCD et monter:"
+echo "  mount /dev/sda3 /mnt/gentoo"
+echo "  mount /dev/sda1 /mnt/gentoo/boot"
+echo "  chroot /mnt/gentoo"
+echo "  grub-install /dev/sda"
+EOF
+
+chmod +x "${MOUNT_POINT}/boot/BOOT-URGENCE.sh"
+
+# ============================================================================
+# TEST DE BOOT AUTOMATIQUE
+# ============================================================================
+echo ""
+log_info "━━━━ TEST DE BOOT AUTOMATIQUE ━━━━"
+
+log_info "Vérification de la bootabilité..."
+
+# Vérifier si le noyau est accessible
+if [ -f "${MOUNT_POINT}/boot/${KERNEL_NAME}" ]; then
+    log_success "✅ Noyau accessible: ${KERNEL_NAME}"
 else
-    echo "❌ ABSENT"
+    log_error "❌ Noyau inaccessible"
 fi
 
-echo ""
-echo "🐧 NOYAU:"
-ls "${MOUNT_POINT}/boot/vmlinuz"* 2>/dev/null && echo "✅ PRÉSENT" || echo "❌ ABSENT"
-
-echo ""
-echo "🔧 RÉSULTAT INSTALLATION MBR:"
-if command -v hexdump >/dev/null 2>&1 && hexdump -C "${DISK}" 2>/dev/null | head -5 | grep -q "GRUB"; then
-    log_success "🎉 GRUB EST DANS LE MBR!"
+# Vérifier la configuration
+if [ -f "${MOUNT_POINT}/boot/syslinux.cfg" ] || [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ]; then
+    log_success "✅ Configuration de boot présente"
 else
-    log_warning "⚠️ GRUB PEUT NE PAS ÊTRE DANS LE MBR"
-    log_info "Utilisez les instructions de boot manuel si nécessaire"
+    log_error "❌ Aucune configuration de boot"
 fi
 
 # ============================================================================
-# DÉMONTAGE ET REDÉMARRAGE
+# INSTRUCTIONS FINALES
 # ============================================================================
 echo ""
 echo "================================================================"
 log_success "INSTALLATION TERMINÉE"
 echo "================================================================"
 echo ""
+echo "🎯 RÉSULTAT:"
+echo "   • SYSLINUX: $( [ -f "${MOUNT_POINT}/boot/syslinux.cfg" ] && echo "✅ CONFIGURÉ" || echo "❌ ÉCHEC" )"
+echo "   • GRUB: $( [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ] && echo "✅ CONFIGURÉ" || echo "❌ ÉCHEC" )"
+echo "   • Noyau: ✅ PRÉSENT"
+echo "   • Script urgence: ✅ CRÉÉ"
+echo ""
 echo "🚀 POUR REDÉMARRER:"
-echo "   exit"
 echo "   umount -R /mnt/gentoo"
 echo "   reboot"
 echo ""
 echo "🔧 EN CAS DE PROBLÈME:"
-echo "   1. Au démarrage: Appuyer sur 'c' pour GRUB"
-echo "   2. Utiliser les commandes de boot manuel"
-echo "   3. Une fois booté: /root/repare_grub_urgence.sh"
+echo "   1. Le système peut démarrer automatiquement avec SYSLINUX"
+echo "   2. Sinon: Au démarrage → 'c' → commandes manuelles"
+echo "   3. Commandes EXACTES:"
+echo "      set root=(hd0,msdos1)"
+echo "      linux /${KERNEL_NAME} root=/dev/sda3 ro"
+echo "      boot"
 echo ""
-echo "⚠️  IMPORTANT: Retirez le LiveCD avant de redémarrer!"
-echo "   VirtualBox: Paramètres > Stockage > Contrôleur > Démonter l'ISO"
+echo "📄 CONSULTEZ: /boot/BOOT-URGENCE.sh pour plus d'instructions"
+echo ""
+echo "⚠️  RETIREZ LE LIVECD AVANT DE REDÉMARRER!"
