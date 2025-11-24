@@ -12,14 +12,14 @@
 set -euo pipefail
 
 ### Configuration (edit if your layout differs) ###
-DISK="${DISK:-/dev/sda}"     # disk (not a partition) for grub-install target
-PART_BOOT="${PART_BOOT:-/dev/sda1}"
+export DISK="${DISK:-/dev/sda}"     # disk (not a partition) for grub-install target
+export PART_BOOT="${PART_BOOT:-/dev/sda1}"
 PART_SWAP="${PART_SWAP:-/dev/sda2}"
-PART_ROOT="${PART_ROOT:-/dev/sda3}"
+export PART_ROOT="${PART_ROOT:-/dev/sda3}"
 PART_HOME="${PART_HOME:-/dev/sda4}"
 MNT="${MNT:-/mnt/gentoo}"
 EFI_DIR="/boot/efi"          # used inside chroot for UEFI installs
-BOOT_DIR="/boot"             # used inside chroot
+export BOOT_DIR="/boot"             # used inside chroot
 GRUB_ID="${GRUB_ID:-Gentoo}" # EFI bootloader id
 # End configuration
 
@@ -129,7 +129,7 @@ info "Entering chroot and performing GRUB install steps..."
 
 chroot "$MNT" /bin/bash -eux <<- 'CHROOT_EOF'
   set -euo pipefail
-  
+
   export PS1="(chroot) ${PS1:-\$ }"
 
   # helper functions (chroot output)
