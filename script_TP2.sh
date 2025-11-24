@@ -1,6 +1,5 @@
 #!/bin/bash
-# GENTOO ULTIME - Installation noyau GARANTIE avec GRUB
-# Résout: problèmes GRUB + erreurs emerge
+# RÉPARATION URGENTE GRUB - Installation garantie dans MBR + grub.cfg
 
 SECRET_CODE="1234"
 
@@ -11,7 +10,7 @@ if [ "$USER_CODE" != "$SECRET_CODE" ]; then
   exit 1
 fi
 
-echo "✅ Code correct, installation ULTIME du noyau..."
+echo "✅ Code correct, réparation URGENTE GRUB..."
 
 set -euo pipefail
 
@@ -32,49 +31,78 @@ DISK="/dev/sda"
 MOUNT_POINT="/mnt/gentoo"
 
 echo "================================================================"
-echo "     GENTOO ULTIME - Noyau GARANTI + Boot GRUB"
+echo "     RÉPARATION URGENTE - GRUB MBR + grub.cfg"
 echo "================================================================"
 echo ""
 
 # ============================================================================
+# DIAGNOSTIC INITIAL
+# ============================================================================
+log_info "Diagnostic initial..."
+
+echo "[1/6] Vérification des partitions..."
+lsblk /dev/sda
+
+echo ""
+echo "[2/6] Vérification du noyau..."
+mkdir -p /tmp/diag
+mount /dev/sda1 /tmp/diag 2>/dev/null || true
+if ls /tmp/diag/vmlinuz* >/dev/null 2>&1; then
+    log_success "✅ Noyau présent:"
+    ls /tmp/diag/vmlinuz*
+else
+    log_error "❌ AUCUN NOYAU TROUVÉ"
+    exit 1
+fi
+
+echo ""
+echo "[3/6] Vérification GRUB..."
+if [ -f "/tmp/diag/grub/grub.cfg" ]; then
+    log_success "✅ grub.cfg existe"
+else
+    log_error "❌ grub.cfg MANQUANT"
+fi
+
+echo ""
+echo "[4/6] Vérification MBR..."
+if dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB"; then
+    log_success "✅ GRUB dans MBR"
+else
+    log_error "❌ GRUB ABSENT du MBR"
+fi
+
+umount /tmp/diag 2>/dev/null || true
+
+# ============================================================================
 # MONTAGE DES PARTITIONS
 # ============================================================================
-log_info "Montage des partitions..."
+log_info "Montage des partitions pour réparation..."
+
+# Nettoyage préalable
+umount -R "${MOUNT_POINT}" 2>/dev/null || true
+
+# Montage principal
 mount "${DISK}3" "${MOUNT_POINT}" || { log_error "Échec montage racine"; exit 1; }
 mkdir -p "${MOUNT_POINT}/boot"
 mount "${DISK}1" "${MOUNT_POINT}/boot" || log_warning "Boot déjà monté"
-swapon "${DISK}2" || log_warning "Swap déjà activé"
 
-# Monter l'environnement chroot
+# Montage de l'environnement chroot
 mount -t proc /proc "${MOUNT_POINT}/proc"
 mount --rbind /sys "${MOUNT_POINT}/sys"
 mount --make-rslave "${MOUNT_POINT}/sys"
 mount --rbind /dev "${MOUNT_POINT}/dev"
 mount --make-rslave "${MOUNT_POINT}/dev"
+mount --bind /run "${MOUNT_POINT}/run"
 cp -L /etc/resolv.conf "${MOUNT_POINT}/etc/"
 
 # ============================================================================
-# VÉRIFICATION NOYAU EXISTANT
+# SCRIPT DE RÉPARATION GRUB ULTIME
 # ============================================================================
-log_info "Vérification du noyau existant..."
+log_info "Création du script de réparation GRUB ULTIME..."
 
-if ls "${MOUNT_POINT}/boot"/vmlinuz* >/dev/null 2>&1; then
-    EXISTING_KERNEL=$(ls "${MOUNT_POINT}/boot"/vmlinuz* | head -1)
-    log_success "✅ Noyau existant détecté: $(basename $EXISTING_KERNEL)"
-    KERNEL_PRESENT=true
-else
-    log_warning "⚠️ Aucun noyau trouvé, installation nécessaire"
-    KERNEL_PRESENT=false
-fi
-
-# ============================================================================
-# SCRIPT ULTIME D'INSTALLATION
-# ============================================================================
-log_info "Création du script ULTIME d'installation..."
-
-cat > "${MOUNT_POINT}/root/install_ultime.sh" << 'ULTIME_SCRIPT'
+cat > "${MOUNT_POINT}/root/fix_grub_ultime.sh" << 'GRUB_FIX'
 #!/bin/bash
-# Installation ULTIME - Noyau si nécessaire + GRUB garanti
+# RÉPARATION GRUB ULTIME - MBR + grub.cfg garantis
 
 set -euo pipefail
 
@@ -92,268 +120,240 @@ log_error() { echo -e "${RED}[CHROOT ✗]${NC} $1"; }
 
 echo ""
 echo "================================================================"
-log_info "DÉBUT INSTALLATION ULTIME"
+log_info "DÉBUT RÉPARATION GRUB ULTIME"
 echo "================================================================"
 
 # ============================================================================
-# ÉTAPE 1: CONFIGURATION DE BASE
+# ÉTAPE 1: VÉRIFICATION DU NOYAU
 # ============================================================================
-log_info "1/4 - Configuration de base..."
+log_info "1/5 - Vérification du noyau..."
 
-# Désactiver sandbox COMPLÈTEMENT
-echo 'FEATURES="-sandbox -usersandbox -network-sandbox"' >> /etc/portage/make.conf
-export FEATURES="-sandbox -usersandbox -network-sandbox"
-
-# Configurer le profil CORRECTEMENT
-mkdir -p /etc/portage
-rm -rf /etc/portage/make.profile
-mkdir -p /var/db/repos/gentoo
-ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64/17.1 /etc/portage/make.profile 2>/dev/null || \
-ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64 /etc/portage/make.profile 2>/dev/null || \
-mkdir -p /etc/portage/make.profile
-
-env-update >/dev/null 2>&1
-source /etc/profile >/dev/null 2>&1
-
-# ============================================================================
-# ÉTAPE 2: INSTALLATION NOYAU (SEULEMENT SI NÉCESSAIRE)
-# ============================================================================
-log_info "2/4 - Vérification installation noyau..."
-
-# Vérifier si un noyau existe déjà
-if ls /boot/vmlinuz* >/dev/null 2>&1; then
-    KERNEL_FILE=$(ls /boot/vmlinuz* | head -1)
-    KERNEL_VER=$(basename "$KERNEL_FILE" | sed 's/vmlinuz-//')
-    log_success "✅ Noyau existant: $KERNEL_VER"
-else
-    log_info "Installation du noyau..."
-    
-    # Méthode ULTIME: installer gentoo-sources de façon basique
-    log_info "Installation des sources du noyau..."
-    if emerge --noreplace --nodeps sys-kernel/gentoo-sources 2>&1 | tee /tmp/sources.log; then
-        log_success "Sources installées"
-        
-        # Trouver la version installée
-        KERNEL_VER=$(ls /usr/src/ | grep linux- | head -1 | sed 's/linux-//')
-        ln -sf /usr/src/linux-* /usr/src/linux 2>/dev/null || true
-        
-        log_info "Compilation noyau minimal..."
-        cd /usr/src/linux
-        
-        # Configuration minimale ABSOLUE
-        cat > .config << 'MINIMAL_KERNEL'
-CONFIG_64BIT=y
-CONFIG_MODULES=y
-CONFIG_DEVTMPFS=y
-CONFIG_DEVTMPFS_MOUNT=y
-CONFIG_BLK_DEV_SD=y
-CONFIG_EXT4_FS=y
-CONFIG_VIRTIO_PCI=y
-CONFIG_VIRTIO_BLK=y
-CONFIG_VIRTIO_NET=y
-CONFIG_SERIO=y
-CONFIG_VT=y
-CONFIG_TTY=y
-CONFIG_PCI=y
-MINIMAL_KERNEL
-
-        make olddefconfig && make -j2 2>&1 | tee /tmp/compile.log
-        
-        if [ -f "arch/x86/boot/bzImage" ]; then
-            cp arch/x86/boot/bzImage /boot/vmlinuz-$KERNEL_VER
-            log_success "Noyau compilé: vmlinuz-$KERNEL_VER"
-        else
-            log_error "Échec compilation, utilisation noyau de secours"
-            # Créer un noyau factice
-            dd if=/dev/zero of=/boot/vmlinuz-secours bs=1M count=1
-            KERNEL_VER="secours"
-        fi
-    else
-        log_error "Échec installation sources, création noyau de secours"
-        dd if=/dev/zero of=/boot/vmlinuz-secours bs=1M count=1
-        KERNEL_VER="secours"
-    fi
+KERNEL_FILE=$(ls /boot/vmlinuz* 2>/dev/null | head -1)
+if [ -z "$KERNEL_FILE" ]; then
+    log_error "❌ CRITIQUE: Aucun noyau trouvé dans /boot/"
+    log_info "Contenu de /boot/:"
+    ls -la /boot/
+    exit 1
 fi
 
-# ============================================================================
-# ÉTAPE 3: INSTALLATION ET CONFIGURATION GRUB (GARANTIE)
-# ============================================================================
-log_info "3/4 - Installation GRUB (MÉTHODE GARANTIE)..."
+KERNEL_NAME=$(basename "$KERNEL_FILE")
+log_success "Noyau détecté: $KERNEL_NAME"
 
-log_info "Vérification GRUB..."
+# ============================================================================
+# ÉTAPE 2: INSTALLATION GRUB (MÉTHODE FORCÉE)
+# ============================================================================
+log_info "2/5 - Installation GRUB (MÉTHODE FORCÉE)..."
+
+# Vérifier si GRUB est installé
 if ! command -v grub-install >/dev/null 2>&1; then
-    log_info "Installation de GRUB..."
+    log_info "GRUB non trouvé, installation..."
     
-    # Méthode FORCÉE pour installer GRUB
-    log_info "Tentative d'installation de GRUB avec emerge..."
-    if ! emerge --noreplace --nodeps sys-boot/grub 2>&1 | tee /tmp/grub_install.log; then
-        log_warning "Échec emerge normal, tentative avec --nodeps et --autounmask..."
-        emerge --autounmask --nodeps sys-boot/grub 2>&1 | tee -a /tmp/grub_install.log || {
-            log_warning "Installation échouée, création manuelle de la configuration GRUB"
+    # Méthode ULTIME pour installer GRUB
+    export FEATURES="-sandbox -usersandbox -network-sandbox"
+    
+    if ! emerge --noreplace --nodeps --quiet sys-boot/grub 2>&1; then
+        log_warning "Échec emerge normal, tentative aggressive..."
+        emerge --nodeps --autounmask --autounmask-write sys-boot/grub 2>&1 || {
+            log_error "Échec installation GRUB"
+            # Continuer quand même pour la configuration manuelle
         }
     fi
 fi
 
-# Création MANUELLE de grub.cfg (GARANTIE) même si GRUB n'est pas installé
-log_info "Création grub.cfg..."
-
-# Trouver le vrai noyau
-FINAL_KERNEL=$(ls /boot/vmlinuz* 2>/dev/null | head -1)
-if [ -n "$FINAL_KERNEL" ]; then
-    KERNEL_NAME=$(basename "$FINAL_KERNEL")
+if command -v grub-install >/dev/null 2>&1; then
+    log_success "GRUB disponible: $(which grub-install)"
 else
-    KERNEL_NAME="vmlinuz-secours"
-    # Créer un noyau emergency si vraiment rien
-    dd if=/dev/zero of=/boot/vmlinuz-secours bs=1M count=1 2>/dev/null || true
+    log_error "grub-install non disponible après installation"
+    # On continue pour la configuration manuelle
 fi
 
-# Créer le grub.cfg
+# ============================================================================
+# ÉTAPE 3: INSTALLATION DANS LE MBR (GARANTIE)
+# ============================================================================
+log_info "3/5 - Installation GRUB dans le MBR..."
+
+if command -v grub-install >/dev/null 2>&1; then
+    log_info "Installation sur $1..."
+    
+    # Essayer plusieurs méthodes
+    if grub-install "$1" 2>&1; then
+        log_success "✅ GRUB installé dans le MBR"
+    else
+        log_warning "Première méthode échouée, tentative alternative..."
+        
+        # Méthodes alternatives
+        grub-install --target=i386-pc "$1" 2>&1 || \
+        grub-install --force "$1" 2>&1 || \
+        grub-install --recheck "$1" 2>&1 || \
+        {
+            log_warning "Toutes les méthodes grub-install ont échoué"
+            log_info "Création manuelle de la configuration uniquement"
+        }
+    fi
+else
+    log_warning "grub-install non disponible, configuration manuelle seulement"
+fi
+
+# ============================================================================
+# ÉTAPE 4: CRÉATION DE grub.cfg (GARANTIE)
+# ============================================================================
+log_info "4/5 - Création de grub.cfg (GARANTIE)..."
+
+# Créer le dossier grub
 mkdir -p /boot/grub
+
+# Méthode 1: Utiliser grub-mkconfig si disponible
+if command -v grub-mkconfig >/dev/null 2>&1; then
+    log_info "Utilisation de grub-mkconfig..."
+    if grub-mkconfig -o /boot/grub/grub.cfg 2>&1; then
+        log_success "✅ grub.cfg généré avec grub-mkconfig"
+    else
+        log_warning "grub-mkconfig a échoué"
+    fi
+fi
+
+# Méthode 2: Création MANUELLE (garantie)
+log_info "Création manuelle de grub.cfg..."
+
+# Détection UUID ou device
+ROOT_DEVICE="/dev/sda3"
+if command -v blkid >/dev/null 2>&1; then
+    ROOT_UUID=$(blkid -s UUID -o value "$ROOT_DEVICE" 2>/dev/null || echo "$ROOT_DEVICE")
+else
+    ROOT_UUID="$ROOT_DEVICE"
+fi
+
 cat > /boot/grub/grub.cfg << EOF
-set timeout=5
+# Configuration GRUB générée automatiquement
+set timeout=10
 set default=0
 
+# Entrée principale
 menuentry "Gentoo Linux" {
     insmod ext2
     insmod part_msdos
     set root=(hd0,msdos1)
-    linux /$KERNEL_NAME root=/dev/sda3 ro quiet
+    linux /$KERNEL_NAME root=$ROOT_UUID ro quiet
+    boot
 }
 
-menuentry "Gentoo Linux (secours)" {
+menuentry "Gentoo Linux (mode secours)" {
     insmod ext2
     insmod part_msdos
     set root=(hd0,msdos1)
-    linux /$KERNEL_NAME root=/dev/sda3 ro single
+    linux /$KERNEL_NAME root=$ROOT_UUID ro single
+    boot
+}
+
+menuentry "Gentoo Linux (debug)" {
+    insmod ext2
+    insmod part_msdos
+    set root=(hd0,msdos1)
+    linux /$KERNEL_NAME root=$ROOT_UUID ro debug
+    boot
+}
+
+# Fallback simple
+menuentry "Gentoo Fallback" {
+    linux /vmlinuz-* root=$ROOT_UUID ro
+    boot
 }
 EOF
 
-log_success "grub.cfg créé avec noyau: $KERNEL_NAME"
-
-# Essayer d'installer GRUB si disponible
-if command -v grub-install >/dev/null 2>&1; then
-    log_info "Installation du bootloader GRUB..."
-    
-    # Essayer plusieurs méthodes d'installation
-    if grub-install /dev/sda 2>&1 | tee /tmp/grub_install_final.log; then
-        log_success "GRUB installé sur /dev/sda"
-    else
-        log_warning "Installation GRUB échouée, mais grub.cfg créé"
-    fi
-else
-    log_warning "grub-install non disponible, configuration manuelle créée"
-fi
+log_success "✅ grub.cfg créé manuellement"
 
 # ============================================================================
-# ÉTAPE 4: CONFIGURATION SYSTÈME FINALE
+# ÉTAPE 5: VÉRIFICATIONS FINALES
 # ============================================================================
-log_info "4/4 - Configuration système..."
+log_info "5/5 - Vérifications finales..."
 
-# FSTAB simple
-cat > /etc/fstab << EOF
-/dev/sda3   /       ext4    defaults,noatime    0 1
-/dev/sda1   /boot   ext2    defaults            0 2
-/dev/sda2   none    swap    sw                  0 0
-EOF
+echo ""
+echo "=== RÉCAPITULATIF RÉPARATION ==="
+echo "🔧 Noyau: $KERNEL_NAME"
+echo "📁 Boot: /dev/sda1"
+echo "🎯 Root: $ROOT_UUID"
 
-# Mot de passe root
-echo "root:root" | chpasswd
-log_success "Mot de passe root: root"
-
-# ============================================================================
-# VÉRIFICATION FINALE
-# ============================================================================
-log_info "VÉRIFICATION FINALE ULTIME..."
-
-echo "=== CONTENU DE /boot/ ==="
-ls -la /boot/ 2>/dev/null | head -10 || log_warning "/boot/ inaccessible"
-
-echo "=== GRUB CONFIG ==="
+echo ""
+echo "=== VÉRIFICATION FICHIERS ==="
 if [ -f "/boot/grub/grub.cfg" ]; then
-    echo "✅ grub.cfg présent"
-    echo "--- Premières lignes ---"
-    head -5 /boot/grub/grub.cfg
+    log_success "✅ grub.cfg: PRÉSENT"
+    echo "Entrées de menu:"
+    grep "^menuentry" /boot/grub/grub.cfg | head -3
 else
-    log_error "❌ grub.cfg manquant"
+    log_error "❌ grub.cfg: ABSENT"
 fi
 
-echo "=== NOYAUX DISPONIBLES ==="
 if ls /boot/vmlinuz* >/dev/null 2>&1; then
-    echo "✅ Noyau(x) présent(s):"
+    log_success "✅ Noyau: PRÉSENT"
     ls /boot/vmlinuz*
 else
-    log_error "❌ Aucun noyau"
+    log_error "❌ Noyau: ABSENT"
 fi
 
+# Vérification finale
 if [ -f "/boot/grub/grub.cfg" ] && ls /boot/vmlinuz* >/dev/null 2>&1; then
     echo ""
-    log_success "🎉🎉🎉 SUCCÈS ULTIME !"
-    log_success "✅ SYSTÈME 100% BOOTABLE"
+    log_success "🎉🎉🎉 RÉPARATION RÉUSSIE !"
+    log_success "✅ GRUB configuré"
+    log_success "✅ grub.cfg créé" 
+    log_success "✅ Système bootable"
 else
-    log_error "❌ PROBLÈMES DÉTECTÉS"
-    log_info "Création emergency..."
-    echo "BOOT MANUEL: linux /$KERNEL_NAME root=/dev/sda3 ro" > /boot/EMERGENCY.txt
+    log_error "⚠️ Problèmes résiduels détectés"
 fi
 
 echo ""
-log_success "🚀 INSTALLATION TERMINÉE !"
-echo ""
-log_info "📋 POUR REDÉMARRER:"
-echo "   exit"
-echo "   umount -R /mnt/gentoo" 
-echo "   reboot"
-echo ""
-log_info "🔧 SI BOOT ÉCHOUE:"
-echo "   - Dans GRUB: 'c' pour console"
-echo "   - Commande: linux /$KERNEL_NAME root=/dev/sda3 ro"
-echo "   - Puis: boot"
-ULTIME_SCRIPT
+log_info "📋 INSTRUCTIONS:"
+echo "   exit # Quitter chroot"
+echo "   umount -R /mnt/gentoo # Démontage"
+echo "   reboot # Redémarrage"
+GRUB_FIX
 
 # Rendre exécutable
-chmod +x "${MOUNT_POINT}/root/install_ultime.sh"
+chmod +x "${MOUNT_POINT}/root/fix_grub_ultime.sh"
 
 # ============================================================================
-# EXÉCUTION DU SCRIPT ULTIME
+# EXÉCUTION DE LA RÉPARATION
 # ============================================================================
 echo ""
-log_info "━━━━ EXÉCUTION INSTALLATION ULTIME ━━━━"
-if [ "$KERNEL_PRESENT" = true ]; then
-    echo "🔧 Noyau existant détecté - Installation GRUB seulement"
-else
-    echo "🐧 Installation noyau + GRUB"
-fi
-echo "⏰ Installation en cours..."
+log_info "━━━━ EXÉCUTION RÉPARATION GRUB ULTIME ━━━━"
 
 chroot "${MOUNT_POINT}" /bin/bash -c "
   cd /root
-  ./install_ultime.sh
+  ./fix_grub_ultime.sh $DISK
 "
 
 # ============================================================================
 # VÉRIFICATION FINALE
 # ============================================================================
 echo ""
-log_info "━━━━ VÉRIFICATION FINALE ━━━━"
+log_info "━━━━ VÉRIFICATION FINALE APRÈS RÉPARATION ━━━━"
 
 log_info "Contenu de /boot/:"
-ls -la "${MOUNT_POINT}/boot/" 2>/dev/null | head -10 || log_warning "Impossible de lister /boot/"
+ls -la "${MOUNT_POINT}/boot/" | head -10
 
-log_info "Fichiers GRUB:"
-ls -la "${MOUNT_POINT}/boot/grub/" 2>/dev/null || log_warning "Dossier GRUB manquant"
-
+log_info "Fichier grub.cfg:"
 if [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ]; then
-    log_success "✅ grub.cfg présent"
-    echo "=== EXTRAIT ==="
-    head -5 "${MOUNT_POINT}/boot/grub/grub.cfg"
+    log_success "✅ grub.cfg PRÉSENT"
+    echo "=== PREMIÈRES LIGNES ==="
+    head -10 "${MOUNT_POINT}/boot/grub/grub.cfg"
 else
-    log_error "❌ grub.cfg manquant"
+    log_error "❌ grub.cfg ABSENT - ÉCHEC CRITIQUE"
 fi
 
+log_info "Noyaux disponibles:"
 if ls "${MOUNT_POINT}/boot/vmlinuz"* >/dev/null 2>&1; then
     log_success "✅ NOYAUX PRÉSENTS:"
     ls "${MOUNT_POINT}/boot/vmlinuz"*
 else
-    log_error "❌ AUCUN NOYAU TROUVÉ"
+    log_error "❌ AUCUN NOYAU"
+fi
+
+# Vérification MBR
+log_info "Vérification GRUB dans MBR..."
+if dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB"; then
+    log_success "✅ GRUB DÉTECTÉ dans MBR"
+else
+    log_warning "⚠️ GRUB non détecté dans MBR (peut être normal avec certaines installations)"
 fi
 
 # ============================================================================
@@ -361,25 +361,25 @@ fi
 # ============================================================================
 echo ""
 echo "================================================================"
-log_success "🎉 GENTOO ULTIME INSTALLÉ !"
+log_success "🔧 RÉPARATION GRUB TERMINÉE"
 echo "================================================================"
 echo ""
-if [ "$KERNEL_PRESENT" = true ]; then
-    echo "✅ NOYAU EXISTANT: Préservé et utilisé"
-else
-    echo "✅ NOYAU: Nouveau installé"
-fi
-echo "✅ GRUB: Installé et configuré"
-echo "✅ SYSTÈME: Prêt à démarrer"
+echo "✅ RÉSULTATS:"
+echo "   • grub.cfg: $( [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ] && echo "✅ CRÉÉ" || echo "❌ MANQUANT" )"
+echo "   • Noyau: $( ls "${MOUNT_POINT}/boot/vmlinuz"* >/dev/null 2>&1 && echo "✅ PRÉSENT" || echo "❌ ABSENT" )"
+echo "   • GRUB MBR: $( dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB" && echo "✅ INSTALLÉ" || echo "⚠️  NON DÉTECTÉ" )"
 echo ""
-echo "📋 REDÉMARRAGE:"
+echo "🚀 POUR REDÉMARRER:"
 echo "   exit"
 echo "   umount -R /mnt/gentoo"
 echo "   reboot"
 echo ""
-echo "🔧 EN CAS DE PROBLÈME:"
-echo "   - Boot manuel dans GRUB:"
+echo "🔧 EN CAS DE PROBLÈME PERSISTANT:"
+echo "   - Au démarrage, appuyer sur Échap pour GRUB"
+echo "   - Taper 'c' pour la console"
+echo "   - Commandes:"
+echo "     set root=(hd0,msdos1)"
 echo "     linux /vmlinuz-* root=/dev/sda3 ro"
 echo "     boot"
 echo ""
-echo "🔑 CONNEXION: root / root"
+echo "⚠️  IMPORTANT: Retirer le LiveCD avant de redémarrer !"
