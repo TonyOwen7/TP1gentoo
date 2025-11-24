@@ -164,13 +164,49 @@ if [ "$IN_SYSTEM" = true ]; then
         exit 1
     fi
 else
-    # Installation via chroot
-    if $CHROOT_PREFIX grub-install /dev/sda 2>&1 | tee /tmp/grub-install.log; then
+    # Installation via chroot - FIX pour erreur LiveOS_rootfs
+    log_info "Installation GRUB depuis chroot (contournement LiveOS_rootfs)..."
+    
+    # MÉTHODE 1: Utiliser --boot-directory pour éviter LiveOS_rootfs
+    if $CHROOT_PREFIX grub-install --boot-directory=/boot /dev/sda 2>&1 | tee /tmp/grub-install.log; then
         log_success "✓ GRUB installé dans le MBR"
     else
-        log_error "❌ Échec installation GRUB"
-        cat /tmp/grub-install.log
-        exit 1
+        log_warning "⚠️ Méthode 1 échouée, essai méthode 2..."
+        
+        # MÉTHODE 2: Installation manuelle des fichiers GRUB
+        log_info "Installation manuelle des fichiers GRUB..."
+        
+        # Copier les fichiers GRUB essentiels
+        if [ -d "/usr/lib/grub/i386-pc" ]; then
+            mkdir -p /mnt/gentoo/boot/grub/i386-pc
+            cp -r /usr/lib/grub/i386-pc/* /mnt/gentoo/boot/grub/i386-pc/ 2>/dev/null || true
+            log_success "✓ Fichiers GRUB copiés"
+        fi
+        
+        # Installer le MBR avec grub-bios-setup depuis le chroot
+        if $CHROOT_PREFIX /bin/bash -c "command -v grub-bios-setup" >/dev/null 2>&1; then
+            $CHROOT_PREFIX grub-bios-setup -d /boot/grub/i386-pc /dev/sda 2>&1 | tee /tmp/grub-bios-setup.log
+            if [ $? -eq 0 ]; then
+                log_success "✓ GRUB installé dans le MBR (méthode alternative)"
+            else
+                log_error "❌ Échec grub-bios-setup"
+                cat /tmp/grub-bios-setup.log
+                
+                # MÉTHODE 3: Installation directe depuis le LiveCD avec --force
+                log_warning "⚠️ Tentative méthode 3: Installation forcée..."
+                grub-install --force --boot-directory=/mnt/gentoo/boot /dev/sda 2>&1 | tee /tmp/grub-force.log
+                if [ $? -eq 0 ]; then
+                    log_success "✓ GRUB installé (mode forcé)"
+                else
+                    log_error "❌ Toutes les méthodes ont échoué"
+                    cat /tmp/grub-force.log
+                    exit 1
+                fi
+            fi
+        else
+            log_error "❌ grub-bios-setup non disponible"
+            exit 1
+        fi
     fi
 fi
 
