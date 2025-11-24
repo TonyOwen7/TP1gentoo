@@ -1,6 +1,6 @@
 #!/bin/bash
 # GENTOO ULTIME - Installation noyau GARANTIE avec GRUB
-# Résout: problèmes GRUB + "grub-install not found"
+# Résout: problèmes GRUB + erreurs emerge
 
 SECRET_CODE="1234"
 
@@ -104,6 +104,14 @@ log_info "1/4 - Configuration de base..."
 echo 'FEATURES="-sandbox -usersandbox -network-sandbox"' >> /etc/portage/make.conf
 export FEATURES="-sandbox -usersandbox -network-sandbox"
 
+# Configurer le profil CORRECTEMENT
+mkdir -p /etc/portage
+rm -rf /etc/portage/make.profile
+mkdir -p /var/db/repos/gentoo
+ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64/17.1 /etc/portage/make.profile 2>/dev/null || \
+ln -sf /var/db/repos/gentoo/profiles/default/linux/amd64 /etc/portage/make.profile 2>/dev/null || \
+mkdir -p /etc/portage/make.profile
+
 env-update >/dev/null 2>&1
 source /etc/profile >/dev/null 2>&1
 
@@ -121,7 +129,10 @@ else
     log_info "Installation du noyau..."
     
     # Méthode ULTIME: installer gentoo-sources de façon basique
-    if emerge --noreplace sys-kernel/gentoo-sources 2>&1 | tee /tmp/sources.log; then
+    log_info "Installation des sources du noyau..."
+    if emerge --noreplace --nodeps sys-kernel/gentoo-sources 2>&1 | tee /tmp/sources.log; then
+        log_success "Sources installées"
+        
         # Trouver la version installée
         KERNEL_VER=$(ls /usr/src/ | grep linux- | head -1 | sed 's/linux-//')
         ln -sf /usr/src/linux-* /usr/src/linux 2>/dev/null || true
@@ -174,27 +185,16 @@ if ! command -v grub-install >/dev/null 2>&1; then
     log_info "Installation de GRUB..."
     
     # Méthode FORCÉE pour installer GRUB
-    if ! emerge --noreplace sys-boot/grub 2>&1 | tee /tmp/grub_install.log; then
-        log_warning "Échec emerge normal, tentative avec --nodeps..."
-        emerge --nodeps sys-boot/grub 2>&1 | tee -a /tmp/grub_install.log
+    log_info "Tentative d'installation de GRUB avec emerge..."
+    if ! emerge --noreplace --nodeps sys-boot/grub 2>&1 | tee /tmp/grub_install.log; then
+        log_warning "Échec emerge normal, tentative avec --nodeps et --autounmask..."
+        emerge --autounmask --nodeps sys-boot/grub 2>&1 | tee -a /tmp/grub_install.log || {
+            log_warning "Installation échouée, création manuelle de la configuration GRUB"
+        }
     fi
 fi
 
-if command -v grub-install >/dev/null 2>&1; then
-    log_info "Installation du bootloader..."
-    
-    # Essayer plusieurs méthodes d'installation
-    if grub-install /dev/sda 2>&1 | tee /tmp/grub_install_final.log; then
-        log_success "GRUB installé sur /dev/sda"
-    else
-        log_warning "Première méthode échouée, tentative alternative..."
-        grub-install --target=i386-pc /dev/sda 2>&1 | tee -a /tmp/grub_install_final.log || true
-    fi
-else
-    log_error "grub-install non trouvé après installation"
-fi
-
-# Création MANUELLE de grub.cfg (GARANTIE)
+# Création MANUELLE de grub.cfg (GARANTIE) même si GRUB n'est pas installé
 log_info "Création grub.cfg..."
 
 # Trouver le vrai noyau
@@ -214,22 +214,35 @@ set timeout=5
 set default=0
 
 menuentry "Gentoo Linux" {
+    insmod ext2
+    insmod part_msdos
+    set root=(hd0,msdos1)
     linux /$KERNEL_NAME root=/dev/sda3 ro quiet
-    boot
 }
 
 menuentry "Gentoo Linux (secours)" {
+    insmod ext2
+    insmod part_msdos
+    set root=(hd0,msdos1)
     linux /$KERNEL_NAME root=/dev/sda3 ro single
-    boot
-}
-
-menuentry "Gentoo Linux (debug)" {
-    linux /$KERNEL_NAME root=/dev/sda3 ro debug
-    boot
 }
 EOF
 
 log_success "grub.cfg créé avec noyau: $KERNEL_NAME"
+
+# Essayer d'installer GRUB si disponible
+if command -v grub-install >/dev/null 2>&1; then
+    log_info "Installation du bootloader GRUB..."
+    
+    # Essayer plusieurs méthodes d'installation
+    if grub-install /dev/sda 2>&1 | tee /tmp/grub_install_final.log; then
+        log_success "GRUB installé sur /dev/sda"
+    else
+        log_warning "Installation GRUB échouée, mais grub.cfg créé"
+    fi
+else
+    log_warning "grub-install non disponible, configuration manuelle créée"
+fi
 
 # ============================================================================
 # ÉTAPE 4: CONFIGURATION SYSTÈME FINALE
@@ -244,8 +257,8 @@ cat > /etc/fstab << EOF
 EOF
 
 # Mot de passe root
-echo "root:gentoo123" | chpasswd
-log_success "Mot de passe root: gentoo123"
+echo "root:root" | chpasswd
+log_success "Mot de passe root: root"
 
 # ============================================================================
 # VÉRIFICATION FINALE
@@ -258,14 +271,19 @@ ls -la /boot/ 2>/dev/null | head -10 || log_warning "/boot/ inaccessible"
 echo "=== GRUB CONFIG ==="
 if [ -f "/boot/grub/grub.cfg" ]; then
     echo "✅ grub.cfg présent"
-    echo "--- Premieres lignes ---"
+    echo "--- Premières lignes ---"
     head -5 /boot/grub/grub.cfg
 else
     log_error "❌ grub.cfg manquant"
 fi
 
 echo "=== NOYAUX DISPONIBLES ==="
-ls /boot/vmlinuz* 2>/dev/null && echo "✅ Noyau(x) présent(s)" || log_error "❌ Aucun noyau"
+if ls /boot/vmlinuz* >/dev/null 2>&1; then
+    echo "✅ Noyau(x) présent(s):"
+    ls /boot/vmlinuz*
+else
+    log_error "❌ Aucun noyau"
+fi
 
 if [ -f "/boot/grub/grub.cfg" ] && ls /boot/vmlinuz* >/dev/null 2>&1; then
     echo ""
@@ -364,4 +382,4 @@ echo "   - Boot manuel dans GRUB:"
 echo "     linux /vmlinuz-* root=/dev/sda3 ro"
 echo "     boot"
 echo ""
-echo "🔑 CONNEXION: root / gentoo123"
+echo "🔑 CONNEXION: root / root"
