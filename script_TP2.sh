@@ -129,7 +129,8 @@ info "Entering chroot and performing GRUB install steps..."
 
 chroot "$MNT" /bin/bash -eux <<- 'CHROOT_EOF'
   set -euo pipefail
-  export PS1="(chroot) $PS1"
+  
+  export PS1="(chroot) ${PS1:-\$ }"
 
   # helper functions (chroot output)
   info() { printf "\033[1;34m[CHROOT INFO]\033[0m %s\n" "$*"; }
