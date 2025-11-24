@@ -1,59 +1,45 @@
 #!/usr/bin/env bash
-# emergency_grub_fix.sh
-# Correction d'urgence GRUB MBR
+# ultra_minimal_grub_fix.sh
+# Solution ultra-minimaliste pour GRUB
 
-set -euo pipefail
+set -e
 
 DISK="/dev/sda"
 MNT="/mnt/gentoo"
 
-# Couleurs
-RED='\033[0;31m'; GREEN='\033[0;32m'; NC='\033[0m'
-echo_red() { echo -e "${RED}$1${NC}"; }
-echo_green() { echo -e "${GREEN}$1${NC}"; }
+echo "=== INSTALLATION GRUB ULTRA-MINIMALISTE ==="
 
-[ "$(id -u)" -eq 0 ] || { echo_red "Run as root!"; exit 1; }
+# Montage basique
+mount /dev/sda3 $MNT
+mount /dev/sda1 $MNT/boot
 
-echo "========================================"
-echo " CORRECTION URGENCE MBR GRUB"
-echo "========================================"
+# Entrée chroot simple
+chroot $MNT << 'EOF'
+echo "Installation GRUB ultra-minimaliste..."
 
-# Montage minimal
-mount /dev/sda3 $MNT || exit 1
-mount /dev/sda1 $MNT/boot || exit 1
-
-for fs in dev proc sys; do
-    mount --rbind /$fs $MNT/$fs && mount --make-rslave $MNT/$fs
-done
-
-# Correction extrême
-chroot $MNT /bin/bash << 'EOF'
-echo "Installation GRUB en mode urgence..."
-
-# Méthode directe
-grub-install --force /dev/sda || \
-grub-install --target=i386-pc --force /dev/sda || \
-{
-    echo "Méthode d'urgence: écriture directe MBR"
-    if [ -f /usr/lib/grub/i386-pc/boot.img ]; then
-        dd if=/usr/lib/grub/i386-pc/boot.img of=/dev/sda bs=446 count=1
-        echo "MBR écrit directement"
-    fi
+# Vérifier les outils basiques
+which grub-install >/dev/null || {
+    echo "GRUB non trouvé, installation..."
+    emerge --noreplace sys-boot/grub || exit 1
 }
 
-# Créer grub.cfg minimal
-cat > /boot/grub/grub.cfg << 'GRUB_CFG'
+# Installation directe sans vérifications
+echo "Installation GRUB directe..."
+grub-install --target=i386-pc --force --no-nvram /dev/sda
+
+# Création grub.cfg ultra-simple
+echo "Création grub.cfg..."
+cat > /boot/grub/grub.cfg << 'GRUB'
 set timeout=3
 menuentry "Gentoo" {
-    set root=(hd0,msdos1)
     linux /vmlinuz root=/dev/sda3 ro
     boot
 }
-GRUB_CFG
+GRUB
 
-echo "Vérification..."
-dd if=/dev/sda bs=512 count=1 | strings | grep -q "GRUB" && echo "SUCCÈS" || echo "ÉCHEC"
+echo "Installation terminée"
 EOF
 
-umount -R $MNT
-echo_green "Correction terminée. Redémarrez."
+umount $MNT/boot
+umount $MNT
+echo "=== TERMINÉ ==="
