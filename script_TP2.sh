@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
-# install_grub_gentoo.sh
-# Safe, idempotent GRUB installer for Gentoo (BIOS & optional UEFI)
+# safe_grub_gentoo.sh
+# Script sûr pour chrooter et installer GRUB (BIOS/UEFI) sans créer de doublons de montage
 # Run as root from LiveCD
-# Usage:
-#   chmod +x install_grub_gentoo.sh
-#   ./install_grub_gentoo.sh
 
 set -euo pipefail
 
 # === Configuration ===
-DISK="${DISK:-/dev/sda}"        # physical disk for BIOS GRUB install
-PART_BOOT="${PART_BOOT:-/dev/sda1}"
-PART_SWAP="${PART_SWAP:-/dev/sda2}"
-PART_ROOT="${PART_ROOT:-/dev/sda3}"
-PART_HOME="${PART_HOME:-/dev/sda4}"
-MNT="${MNT:-/mnt/gentoo}"
-BOOT_DIR="/boot"                 # relative to chroot
-EFI_DIR="/boot/efi"              # for UEFI
-GRUB_ID="Gentoo"                 # EFI bootloader ID
+DISK="/dev/sda"
+PART_ROOT="/dev/sda3"
+PART_BOOT="/dev/sda1"
+PART_HOME="/dev/sda4"
+PART_SWAP="/dev/sda2"
+MNT="/mnt/gentoo"
+BOOT_DIR="/boot"
+EFI_DIR="/boot/efi"
+GRUB_ID="Gentoo"
 
 # === Colors ===
 BLUE='\033[1;34m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[1;31m'; NC='\033[0m'
@@ -29,71 +26,64 @@ err()  { printf "${RED}[ERROR]${NC} %s\n" "$*"; exit 1; }
 # === Root check ===
 [ "$(id -u)" -eq 0 ] || err "This script must be run as root."
 
-# === Check devices exist ===
-for p in "$PART_ROOT" "$PART_BOOT"; do
-    [ -b "$p" ] || err "Block device $p not found. Check your PART_* variables."
-done
-
 info "Disk: $DISK"
 info "Root partition: $PART_ROOT"
 info "Boot partition: $PART_BOOT"
+info "Home partition: $PART_HOME"
 info "Mount point: $MNT"
 
-# === Mount partitions ===
-mkdir -p "$MNT"
-mount "$PART_ROOT" "$MNT" 2>/dev/null || ok "$PART_ROOT already mounted"
-mkdir -p "${MNT}${BOOT_DIR}"
-mount "$PART_BOOT" "${MNT}${BOOT_DIR}" 2>/dev/null || ok "$PART_BOOT already mounted"
+# === 1️⃣ Nettoyer les montages fantômes ===
+umount -l "$MNT/boot" 2>/dev/null || true
+umount -l "$MNT/home" 2>/dev/null || true
+umount -l "$MNT" 2>/dev/null || true
 
-# Optional mounts
-[ -b "$PART_HOME" ] && mkdir -p "${MNT}/home" && mount "$PART_HOME" "${MNT}/home" 2>/dev/null || true
-[ -b "$PART_SWAP" ] && swapon "$PART_SWAP" 2>/dev/null || true
+# === 2️⃣ Monter les partitions correctement ===
+mount "$PART_ROOT" "$MNT" || err "Failed to mount root"
+ok "Mounted root: $PART_ROOT -> $MNT"
 
-# === Bind mounts for chroot ===
+mkdir -p "$MNT$BOOT_DIR"
+mount "$PART_BOOT" "$MNT$BOOT_DIR" || err "Failed to mount boot"
+ok "Mounted boot: $PART_BOOT -> $MNT$BOOT_DIR"
+
+if [ -b "$PART_HOME" ]; then
+    mkdir -p "$MNT/home"
+    mount "$PART_HOME" "$MNT/home" || warn "Home mount failed"
+fi
+
+if [ -b "$PART_SWAP" ]; then
+    swapon "$PART_SWAP" 2>/dev/null || warn "Swap enable failed"
+fi
+
+# === 3️⃣ Bind mounts pour chroot ===
 for fs in dev sys proc run; do
-    mount --rbind "/$fs" "$MNT/$fs" 2>/dev/null || true
+    mountpoint -q "$MNT/$fs" || mount --rbind "/$fs" "$MNT/$fs"
     mount --make-rslave "$MNT/$fs" 2>/dev/null || true
 done
 
-# Copy network config
-[ -f /etc/resolv.conf ] && cp -L /etc/resolv.conf "$MNT/etc/resolv.conf" || warn "No /etc/resolv.conf"
+# Copie resolv.conf
+[ -f /etc/resolv.conf ] && cp -L /etc/resolv.conf "$MNT/etc/resolv.conf" || warn "No resolv.conf"
 
-# === Kernel check ===
-if ls "$MNT${BOOT_DIR}/vmlinuz"* >/dev/null 2>&1; then
-    ok "Kernel found in $BOOT_DIR"
-else
-    warn "No kernel found. grub-install may fail until kernel is installed."
-fi
-
-# === Chroot and install GRUB ===
+# === 4️⃣ Entrée dans chroot pour GRUB ===
 info "Entering chroot to install GRUB..."
-
 chroot "$MNT" /bin/bash -eux <<'CHROOT_EOF'
 set -euo pipefail
 
-# Colored output in chroot
-BLUE='\033[1;34m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[1;31m'; NC='\033[0m'
+BLUE='\033[1;34m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 info() { printf "${BLUE}[CHROOT INFO]${NC} %s\n" "$*"; }
 ok()   { printf "${GREEN}[CHROOT OK]${NC} %s\n" "$*"; }
 warn() { printf "${YELLOW}[CHROOT WARN]${NC} %s\n" "$*"; }
 err()  { printf "${RED}[CHROOT ERROR]${NC} %s\n" "$*"; exit 1; }
 
-export PS1="(chroot) ${PS1:-\$ }"
+export PS1="(chroot) \$ "
 
-# === Start udev for BIOS GRUB detection ===
-if command -v /etc/init.d/udev >/dev/null 2>&1; then
-    /etc/init.d/udev start || warn "udev start failed"
-fi
-
-# Install grub if missing
+# Installer GRUB si nécessaire
 if ! command -v grub-install >/dev/null 2>&1; then
-    info "Installing GRUB package..."
     [ -x /usr/bin/emerge ] && emerge --noreplace sys-boot/grub || err "grub missing and cannot install"
 else
-    ok "grub binary present"
+    ok "GRUB binary present"
 fi
 
-# Detect BIOS vs UEFI
+# Détecter BIOS ou UEFI
 INSTALL_MODE="bios"
 if [ -d /boot/efi ] && mountpoint -q /boot/efi; then
     INSTALL_MODE="uefi"
@@ -102,40 +92,25 @@ elif [ -d /sys/firmware/efi ]; then
 fi
 info "GRUB install mode: $INSTALL_MODE"
 
-# === Install GRUB ===
+# Installer GRUB
 if [ "$INSTALL_MODE" = "uefi" ]; then
-    info "Installing GRUB for UEFI..."
     grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Gentoo || warn "UEFI grub-install failed"
 else
-    info "Installing GRUB for BIOS..."
     grub-install --target=i386-pc /dev/sda || err "BIOS grub-install failed"
 fi
 ok "grub-install done"
 
-# === Generate grub.cfg ===
+# Générer grub.cfg
 if [ -f /boot/grub/grub.cfg ]; then
-    info "Backing up existing grub.cfg..."
     cp -a /boot/grub/grub.cfg /boot/grub/grub.cfg.old || true
 fi
 grub-mkconfig -o /boot/grub/grub.cfg && ok "grub.cfg generated" || warn "grub-mkconfig failed"
 CHROOT_EOF
 
-info "Returned from chroot."
+# === 5️⃣ Post check ===
+[ -f "$MNT$BOOT_DIR/grub/grub.cfg" ] && ok "Found grub.cfg" || warn "No grub.cfg found"
 
-# === Post checks ===
-[ -f "${MNT}${BOOT_DIR}/grub/grub.cfg" ] && ok "Found grub.cfg" || warn "No grub.cfg found"
-
-if command -v strings >/dev/null 2>&1; then
-    dd if="$DISK" bs=512 count=1 2>/dev/null | strings | grep -q "GRUB" && ok "GRUB signature in MBR" || warn "No GRUB signature in MBR"
-else
-    warn "strings command not available, skipping MBR check"
-fi
-
-echo
-ok "GRUB installation script finished."
-echo "Unmount & reboot when ready:"
-cat <<EOF
-umount -R $MNT
-swapoff $PART_SWAP 2>/dev/null || true
-reboot
-EOF
+info "Unmount & reboot when ready:"
+echo "umount -R $MNT"
+echo "swapoff $PART_SWAP 2>/dev/null || true"
+echo "reboot"
