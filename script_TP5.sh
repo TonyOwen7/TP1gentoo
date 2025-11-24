@@ -1,44 +1,48 @@
 #!/usr/bin/env bash
-# tp2_chroot_grub.sh
-# Installe GRUB et génère grub.cfg dans le chroot
+# prepare_chroot.sh
+# Monte les partitions et prépare l'environnement chroot
+# Usage: ./prepare_chroot.sh
 
 set -euo pipefail
 
-# === Colors ===
-BLUE='\033[1;34m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[1;31m'; NC='\033[0m'
-info() { printf "${BLUE}[INFO]${NC} %s\n" "$*"; }
-ok()   { printf "${GREEN}[OK]${NC} %s\n" "$*"; }
-warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$*"; }
-err()  { printf "${RED}[ERROR]${NC} %s\n" "$*"; exit 1; }
+# Configuration
+DISK="/dev/sda"
+PART_ROOT="/dev/sda3"
+PART_BOOT="/dev/sda1"
+PART_HOME="/dev/sda4"
+PART_SWAP="/dev/sda2"
+MNT="/mnt/gentoo"
+BOOT_DIR="/boot"
 
-# Ensure PS1 set
-export PS1="(chroot) $PS1"
+# Fonctions couleurs
+info() { printf "\033[1;34m[INFO]\033[0m %s\n" "$*"; }
+ok()   { printf "\033[1;32m[OK]\033[0m %s\n" "$*"; }
+warn() { printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
 
-# Start udev for BIOS detection
-[ -x /etc/init.d/udev ] && /etc/init.d/udev start || warn "udev start failed"
+# Monter root
+mkdir -p "$MNT"
+mountpoint -q "$MNT" || mount "$PART_ROOT" "$MNT"
+ok "Root mounted at $MNT"
 
-# Install GRUB if missing
-if ! command -v grub-install >/dev/null 2>&1; then
-    info "Installing GRUB..."
-    [ -x /usr/bin/emerge ] && emerge --noreplace sys-boot/grub || err "GRUB not found and cannot install"
-else
-    ok "GRUB present"
-fi
+# Monter boot
+mkdir -p "$MNT$BOOT_DIR"
+mountpoint -q "$MNT$BOOT_DIR" || mount "$PART_BOOT" "$MNT$BOOT_DIR"
+ok "Boot mounted at $MNT$BOOT_DIR"
 
-# Detect BIOS/UEFI
-INSTALL_MODE="bios"
-[ -d /boot/efi ] && mountpoint -q /boot/efi && INSTALL_MODE="uefi"
-[ -d /sys/firmware/efi ] && INSTALL_MODE="uefi"
-info "Detected GRUB install mode: $INSTALL_MODE"
+# Monter home si nécessaire
+[ -b "$PART_HOME" ] && mkdir -p "$MNT/home" && mountpoint -q "$MNT/home" || mount "$PART_HOME" "$MNT/home" 2>/dev/null && ok "Home mounted"
 
-# Run grub-install
-if [ "$INSTALL_MODE" = "uefi" ]; then
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Gentoo || warn "UEFI grub-install failed"
-else
-    grub-install --target=i386-pc /dev/sda || err "BIOS grub-install failed"
-fi
-ok "grub-install done"
+# Activer swap
+[ -b "$PART_SWAP" ] && swapon "$PART_SWAP" 2>/dev/null && ok "Swap active"
 
-# Generate grub.cfg
-[ -f /boot/grub/grub.cfg ] && cp -a /boot/grub/grub.cfg /boot/grub/grub.cfg.old || true
-grub-mkconfig -o /boot/grub/grub.cfg && ok "grub.cfg generated"
+# Bind mounts
+for fs in dev sys proc run; do
+    mountpoint -q "$MNT/$fs" || mount --rbind "/$fs" "$MNT/$fs"
+    mount --make-rslave "$MNT/$fs"
+done
+ok "Bind mounts done"
+
+# Copier resolv.conf pour le réseau
+[ -f /etc/resolv.conf ] && cp -L /etc/resolv.conf "$MNT/etc/resolv.conf"
+
+info "Préparation chroot terminée. Maintenant, lancez le script grub_chroot.sh"
