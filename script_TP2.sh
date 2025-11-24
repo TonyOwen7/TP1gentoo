@@ -1,23 +1,13 @@
 #!/usr/bin/env bash
-# safe_grub_install.sh
-# Installe GRUB sur Gentoo depuis un LiveCD
-# BIOS (i386-pc) ou UEFI (x86_64-efi) selon partition boot
-# Usage: run as root
-# chmod +x safe_grub_install.sh
-# ./safe_grub_install.sh
-
+# safe_grub_install_fixed.sh
+# Installation corrigée de GRUB pour Gentoo avec vérifications de montage
 set -euo pipefail
 
 # === Configuration ===
-DISK="/dev/sda"             # disque entier pour BIOS
-PART_BOOT="/dev/sda1"       # partition boot (EFI ou /boot)
-PART_ROOT="/dev/sda3"       # root
-PART_HOME="/dev/sda4"       # home (optionnel)
-PART_SWAP="/dev/sda2"       # swap (optionnel)
-MNT="/mnt/gentoo"           # point de montage root
-BOOT_DIR="/boot"            # relatif au chroot
-EFI_DIR="/boot/efi"         # pour UEFI
-GRUB_ID="Gentoo"
+DISK="/dev/sda"
+PART_BOOT="/dev/sda1"
+PART_ROOT="/dev/sda3"
+MNT="/mnt/gentoo"
 
 # === Fonctions couleurs ===
 BLUE='\033[1;34m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[1;31m'; NC='\033[0m'
@@ -26,80 +16,109 @@ ok()   { printf "${GREEN}[OK]${NC} %s\n" "$*"; }
 warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$*"; }
 err()  { printf "${RED}[ERROR]${NC} %s\n" "$*"; exit 1; }
 
-# === Root check ===
-[ "$(id -u)" -eq 0 ] || err "Run as root!"
+# === Fonction de montage sécurisé ===
+safe_mount() {
+    local device="$1"
+    local mountpoint="$2"
+    
+    if mountpoint -q "$mountpoint"; then
+        info "$mountpoint est déjà monté"
+        return 0
+    fi
+    
+    if [ ! -b "$device" ]; then
+        err "Device $device non trouvé"
+    fi
+    
+    mkdir -p "$mountpoint"
+    if mount "$device" "$mountpoint"; then
+        ok "Monté $device sur $mountpoint"
+    else
+        err "Échec du montage de $device sur $mountpoint"
+    fi
+}
 
-# === Vérification partitions ===
-for p in "$PART_ROOT" "$PART_BOOT"; do
-    [ -b "$p" ] || err "Device $p not found"
+# === Vérification root ===
+[ "$(id -u)" -eq 0 ] || err "Exécutez en tant que root!"
+
+# === Montage des partitions ===
+info "Montage des partitions..."
+safe_mount "$PART_ROOT" "$MNT"
+safe_mount "$PART_BOOT" "$MNT/boot"
+
+# === Bind mounts avec vérification ===
+info "Configuration des bind mounts..."
+for fs in dev sys proc; do
+    if ! mountpoint -q "$MNT/$fs"; then
+        mount --rbind "/$fs" "$MNT/$fs"
+        mount --make-rslave "$MNT/$fs"
+        ok "Bind mount $fs créé"
+    else
+        info "Bind mount $fs déjà présent"
+    fi
 done
 
-info "Root: $PART_ROOT, Boot: $PART_BOOT, Disk: $DISK"
-
-# === Montage safe ===
-mkdir -p "$MNT"
-mountpoint -q "$MNT" || mount "$PART_ROOT" "$MNT" || err "Failed mount root"
-ok "Root mounted"
-
-mkdir -p "$MNT$BOOT_DIR"
-mountpoint -q "$MNT$BOOT_DIR" || mount "$PART_BOOT" "$MNT$BOOT_DIR" || warn "Boot mount failed"
-ok "Boot mounted"
-
-[ -b "$PART_HOME" ] && mkdir -p "$MNT/home" && mountpoint -q "$MNT/home" || mount "$PART_HOME" "$MNT/home" 2>/dev/null || true
-[ -b "$PART_SWAP" ] && swapon "$PART_SWAP" 2>/dev/null || true
-
-# === Bind mounts ===
-for fs in dev sys proc run; do
-    mountpoint -q "$MNT/$fs" || mount --rbind "/$fs" "$MNT/$fs"
-    mount --make-rslave "$MNT/$fs"
-done
-
-# Copy resolv.conf
-[ -f /etc/resolv.conf ] && cp -L /etc/resolv.conf "$MNT/etc/resolv.conf" || warn "No /etc/resolv.conf"
-
-# === Chroot installation ===
-info "Entering chroot..."
-
-chroot "$MNT" /bin/bash -eux <<'CHROOT_EOF'
-set -euo pipefail
-BLUE='\033[1;34m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[1;31m'; NC='\033[0m'
-info() { printf "${BLUE}[CHROOT INFO]${NC} %s\n" "$*"; }
-ok()   { printf "${GREEN}[CHROOT OK]${NC} %s\n" "$*"; }
-warn() { printf "${YELLOW}[CHROOT WARN]${NC} %s\n" "$*"; }
-err()  { printf "${RED}[CHROOT ERROR]${NC} %s\n" "$*"; exit 1; }
-
-# PS1 pour bash
-export PS1="(chroot) \$ "
-
-# Installer GRUB si absent
-command -v grub-install >/dev/null 2>&1 || { info "Installing GRUB"; emerge --noreplace sys-boot/grub || err "Cannot install grub"; }
-
-# Détecter BIOS ou UEFI
-INSTALL_MODE="bios"
-if mountpoint -q /boot/efi || [ -d /sys/firmware/efi ]; then
-    INSTALL_MODE="uefi"
+if ! mountpoint -q "$MNT/run"; then
+    mount --bind /run "$MNT/run"
+    ok "Bind mount run créé"
 fi
-info "GRUB mode: $INSTALL_MODE"
 
-# Installer GRUB correctement
-if [ "$INSTALL_MODE" = "uefi" ]; then
-    info "Installing UEFI GRUB..."
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Gentoo || warn "UEFI grub-install failed"
+# === Installation GRUB dans chroot ===
+info "Installation de GRUB dans le chroot..."
+chroot "$MNT" /bin/bash <<'CHROOT_EOF'
+set -e
+
+echo "=== Vérification du système ==="
+# Vérifier si nous sommes en UEFI ou BIOS
+if [ -d /sys/firmware/efi ]; then
+    echo "Système UEFI détecté"
+    # Pour UEFI, s'assurer que la partition EFI est montée
+    mkdir -p /boot/efi
+    if ! mountpoint -q /boot/efi; then
+        mount /dev/sda1 /boot/efi || echo "Attention: impossible de monter /boot/efi"
+    fi
+    
+    # Installer GRUB pour UEFI
+    command -v grub-install >/dev/null 2>&1 || {
+        echo "Installation de GRUB..."
+        emerge --noreplace sys-boot/grub || emerge sys-boot/grub
+    }
+    echo "Installation de GRUB pour UEFI..."
+    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Gentoo
 else
-    info "Installing BIOS GRUB on /dev/sda..."
-    grub-install --target=i386-pc /dev/sda || err "BIOS grub-install failed"
+    echo "Système BIOS détecté"
+    # Installer GRUB pour BIOS
+    command -v grub-install >/dev/null 2>&1 || {
+        echo "Installation de GRUB..."
+        emerge --noreplace sys-boot/grub || emerge sys-boot/grub
+    }
+    echo "Installation de GRUB pour BIOS..."
+    grub-install --target=i386-pc /dev/sda
 fi
 
-# Générer grub.cfg
-[ -f /boot/grub/grub.cfg ] && cp -a /boot/grub/grub.cfg /boot/grub/grub.cfg.old || true
-grub-mkconfig -o /boot/grub/grub.cfg && ok "grub.cfg generated"
+# Générer la configuration GRUB
+echo "Génération de la configuration GRUB..."
+grub-mkconfig -o /boot/grub/grub.cfg
 
+# Vérifier l'installation
+echo "=== Vérification de l'installation GRUB ==="
+if [ -f /boot/grub/grub.cfg ]; then
+    echo "✓ Configuration GRUB générée avec succès"
+    echo "✓ Contenu de /boot :"
+    ls -la /boot/
+else
+    echo "✗ Erreur: grub.cfg non généré"
+    exit 1
+fi
 CHROOT_EOF
 
-ok "Returned from chroot"
-ok "Script finished. Verify /boot/grub/grub.cfg and reboot when ready:"
-cat <<EOF
-umount -R $MNT
-swapoff $PART_SWAP 2>/dev/null || true
-reboot
-EOF
+ok "Retour du chroot"
+echo ""
+echo "=== RÉSUMÉ ==="
+echo "1. Partitions montées: ✓"
+echo "2. GRUB installé: ✓" 
+echo "3. Configuration générée: ✓"
+echo ""
+echo "Pour redémarrer:"
+echo "umount -R $MNT"
+echo "reboot"
