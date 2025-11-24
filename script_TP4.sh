@@ -1,47 +1,48 @@
 #!/usr/bin/env bash
-# tp1_mount_chroot.sh
-# Montages, swap, bind mounts et préparation chroot pour Gentoo
+# grub_chroot.sh
+# Installe GRUB depuis chroot, BIOS ou UEFI
+# Usage: ./grub_chroot.sh
 
 set -euo pipefail
 
-# Configuration
-DISK="${DISK:-/dev/sda}"
-PART_ROOT="${PART_ROOT:-/dev/sda3}"
-PART_BOOT="${PART_BOOT:-/dev/sda1}"
-PART_SWAP="${PART_SWAP:-/dev/sda2}"
-PART_HOME="${PART_HOME:-/dev/sda4}"
-MNT="${MNT:-/mnt/gentoo}"
+MNT="/mnt/gentoo"
+DISK="/dev/sda"
+BOOT_DIR="/boot"
+EFI_DIR="/boot/efi"
+GRUB_ID="Gentoo"
 
-# === Colors ===
-BLUE='\033[1;34m'; GREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[1;31m'; NC='\033[0m'
-info() { printf "${BLUE}[INFO]${NC} %s\n" "$*"; }
-ok()   { printf "${GREEN}[OK]${NC} %s\n" "$*"; }
-warn() { printf "${YELLOW}[WARN]${NC} %s\n" "$*"; }
-err()  { printf "${RED}[ERROR]${NC} %s\n" "$*"; exit 1; }
+info() { printf "\033[1;34m[INFO]\033[0m %s\n" "$*"; }
+ok()   { printf "\033[1;32m[OK]\033[0m %s\n" "$*"; }
+warn() { printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
+err()  { printf "\033[1;31m[ERROR]\033[0m %s\n" "$*"; exit 1; }
 
-# Root check
-[ "$(id -u)" -eq 0 ] || err "Run as root"
+info "Entrée dans le chroot pour installation GRUB..."
 
-info "Mounting root partition..."
-mkdir -p "$MNT"
-mount "$PART_ROOT" "$MNT" 2>/dev/null || ok "$PART_ROOT already mounted"
+chroot "$MNT" /bin/bash -eux <<'CHROOT_EOF'
+set -euo pipefail
 
-info "Mounting boot partition..."
-mkdir -p "$MNT/boot"
-mount "$PART_BOOT" "$MNT/boot" 2>/dev/null || ok "$PART_BOOT already mounted"
+export PS1="(chroot) $ "
 
-# Optional mounts
-[ -b "$PART_HOME" ] && mkdir -p "$MNT/home" && mount "$PART_HOME" "$MNT/home" 2>/dev/null || true
-[ -b "$PART_SWAP" ] && swapon "$PART_SWAP" 2>/dev/null || true
+# Installer GRUB si absent
+command -v grub-install >/dev/null 2>&1 || { emerge --noreplace sys-boot/grub || exit 1; }
 
-# Bind mounts
-for fs in dev sys proc run; do
-    mount --rbind "/$fs" "$MNT/$fs" 2>/dev/null || true
-    mount --make-rslave "$MNT/$fs" 2>/dev/null || true
-done
+# Détecter BIOS ou UEFI
+INSTALL_MODE="bios"
+if mountpoint -q /boot/efi || [ -d /sys/firmware/efi ]; then
+    INSTALL_MODE="uefi"
+fi
 
-# Copy resolv.conf
-[ -f /etc/resolv.conf ] && cp -L /etc/resolv.conf "$MNT/etc/resolv.conf"
+echo "GRUB mode: $INSTALL_MODE"
 
-ok "Chroot environment ready at $MNT"
-echo "Now run the chroot script: chroot $MNT /bin/bash /root/tp2_chroot_grub.sh"
+if [ "$INSTALL_MODE" = "uefi" ]; then
+    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Gentoo || echo "UEFI grub-install failed"
+else
+    grub-install --target=i386-pc /dev/sda || exit 1
+fi
+
+# Générer grub.cfg
+[ -f /boot/grub/grub.cfg ] && cp -a /boot/grub/grub.cfg /boot/grub/grub.cfg.old || true
+grub-mkconfig -o /boot/grub/grub.cfg || echo "grub-mkconfig failed"
+CHROOT_EOF
+
+ok "GRUB installé depuis chroot. Vérifiez /boot/grub/grub.cfg"
