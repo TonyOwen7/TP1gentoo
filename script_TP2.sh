@@ -122,25 +122,49 @@ fi
 
 # Générer core.img avec les modules nécessaires
 log_info "Génération de core.img avec modules essentiels..."
-MODULES="biosdisk part_msdos ext2 normal ls boot"
 
+# Trouver le chemin de grub-mkimage
+GRUB_MKIMAGE=""
+for path in /usr/bin/grub-mkimage /usr/sbin/grub-mkimage /bin/grub-mkimage /sbin/grub-mkimage \
+            /usr/bin/grub2-mkimage /usr/sbin/grub2-mkimage; do
+    if [ "$IN_CHROOT" = true ]; then
+        if chroot /mnt/gentoo test -x "$path" 2>/dev/null; then
+            GRUB_MKIMAGE="$path"
+            break
+        fi
+    else
+        if [ -x "$path" ]; then
+            GRUB_MKIMAGE="$path"
+            break
+        fi
+    fi
+done
+
+if [ -z "$GRUB_MKIMAGE" ]; then
+    log_error "❌ grub-mkimage introuvable"
+    log_info "Recherche dans le système..."
+    if [ "$IN_CHROOT" = true ]; then
+        chroot /mnt/gentoo find /usr -name "grub-mkimage" -o -name "grub2-mkimage" 2>/dev/null || true
+    else
+        find /usr -name "grub-mkimage" -o -name "grub2-mkimage" 2>/dev/null || true
+    fi
+    exit 1
+fi
+
+log_success "✓ Trouvé: $GRUB_MKIMAGE"
+
+# Générer core.img
 if [ "$IN_CHROOT" = true ]; then
-    chroot /mnt/gentoo /bin/bash << 'EOCHROOT'
+    chroot /mnt/gentoo /bin/bash << EOCHROOT
 set -e
 cd /boot/grub
-grub-mkimage -O i386-pc -o core.img -p "(hd0,msdos1)/grub" \
-    biosdisk part_msdos ext2 normal ls boot search search_fs_uuid \
-    configfile echo test cat help reboot halt || \
-grub2-mkimage -O i386-pc -o core.img -p "(hd0,msdos1)/grub" \
+$GRUB_MKIMAGE -O i386-pc -o core.img -p "(hd0,msdos1)/grub" \
     biosdisk part_msdos ext2 normal ls boot search search_fs_uuid \
     configfile echo test cat help reboot halt
 EOCHROOT
 else
     cd "$BOOT_DIR/grub"
-    grub-mkimage -O i386-pc -o core.img -p "(hd0,msdos1)/grub" \
-        biosdisk part_msdos ext2 normal ls boot search search_fs_uuid \
-        configfile echo test cat help reboot halt 2>/dev/null || \
-    grub2-mkimage -O i386-pc -o core.img -p "(hd0,msdos1)/grub" \
+    $GRUB_MKIMAGE -O i386-pc -o core.img -p "(hd0,msdos1)/grub" \
         biosdisk part_msdos ext2 normal ls boot search search_fs_uuid \
         configfile echo test cat help reboot halt
 fi
