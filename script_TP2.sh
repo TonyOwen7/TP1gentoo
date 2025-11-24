@@ -78,7 +78,7 @@ ok()   { printf "${GREEN}[CHROOT OK]${NC} %s\n" "$*"; }
 warn() { printf "${YELLOW}[CHROOT WARN]${NC} %s\n" "$*"; }
 err()  { printf "${RED}[CHROOT ERROR]${NC} %s\n" "$*"; exit 1; }
 
-export PS1="(chroot) $PS1"
+export PS1="(chroot) ${PS1:-\$ }"
 
 # === Start udev for BIOS GRUB detection ===
 if command -v /etc/init.d/udev >/dev/null 2>&1; then
