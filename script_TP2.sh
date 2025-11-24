@@ -64,11 +64,12 @@ else
 fi
 
 echo ""
-echo "[4/6] Vérification MBR..."
-if dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB"; then
+echo "[4/6] Vérification MBR (méthode alternative)..."
+# Méthode alternative sans 'strings'
+if hexdump -C /dev/sda | head -20 | grep -q "GRUB"; then
     log_success "✅ GRUB dans MBR"
 else
-    log_error "❌ GRUB ABSENT du MBR"
+    log_warning "⚠️ GRUB non détecté dans MBR (installation nécessaire)"
 fi
 
 umount /tmp/diag 2>/dev/null || true
@@ -348,9 +349,9 @@ else
     log_error "❌ AUCUN NOYAU"
 fi
 
-# Vérification MBR
-log_info "Vérification GRUB dans MBR..."
-if dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB"; then
+# Vérification MBR (méthode alternative sans strings)
+log_info "Vérification GRUB dans MBR (méthode hexdump)..."
+if which hexdump >/dev/null 2>&1 && hexdump -C /dev/sda 2>/dev/null | head -20 | grep -q "GRUB"; then
     log_success "✅ GRUB DÉTECTÉ dans MBR"
 else
     log_warning "⚠️ GRUB non détecté dans MBR (peut être normal avec certaines installations)"
@@ -367,7 +368,7 @@ echo ""
 echo "✅ RÉSULTATS:"
 echo "   • grub.cfg: $( [ -f "${MOUNT_POINT}/boot/grub/grub.cfg" ] && echo "✅ CRÉÉ" || echo "❌ MANQUANT" )"
 echo "   • Noyau: $( ls "${MOUNT_POINT}/boot/vmlinuz"* >/dev/null 2>&1 && echo "✅ PRÉSENT" || echo "❌ ABSENT" )"
-echo "   • GRUB MBR: $( dd if=/dev/sda bs=512 count=1 2>/dev/null | strings | grep -q "GRUB" && echo "✅ INSTALLÉ" || echo "⚠️  NON DÉTECTÉ" )"
+echo "   • GRUB MBR: $( (which hexdump >/dev/null 2>&1 && hexdump -C /dev/sda 2>/dev/null | head -20 | grep -q "GRUB" && echo "✅ INSTALLÉ") || echo "⚠️  INCONNU" )"
 echo ""
 echo "🚀 POUR REDÉMARRER:"
 echo "   exit"
