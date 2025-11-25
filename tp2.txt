@@ -1,0 +1,105 @@
+Parfait ! Voici une **checklist complète pour TP2 Gentoo OpenRC** avec toutes les commandes concrètes pour compiler le noyau, installer GRUB et finaliser le système :
+
+---
+
+## **1️⃣ Installer les sources du noyau**
+
+Si RAM limitée : télécharger depuis kernel.org
+
+```bash
+cd /usr/src
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.10.tar.xz
+tar xf linux-6.6.10.tar.xz
+ln -s linux-6.6.10 linux
+cd linux
+```
+
+Sinon, avec emerge :
+
+```bash
+emerge --noreplace sys-kernel/gentoo-sources
+cd /usr/src/linux
+```
+
+---
+
+## **2️⃣ Identifier le matériel**
+
+```bash
+lspci           # périphériques PCI (chipset, carte graphique)
+lsusb           # périphériques USB
+dmesg | less    # messages du noyau
+lshw            # configuration détaillée
+```
+
+> Note ce dont tu as besoin pour activer dans le noyau.
+
+---
+
+## **3️⃣ Configurer le noyau**
+
+```bash
+make menuconfig    # interface de configuration du noyau
+```
+
+Points à vérifier/modifier :
+
+* **Filesystems** → activer les systèmes de fichiers utilisés
+* **Device Drivers → Generic Driver Options → Devtmpfs** → activer
+* Désactiver :
+
+  * Debugging options
+  * Support Wi-Fi
+  * Support Mac
+
+Sauvegarder la configuration.
+
+---
+
+## **4️⃣ Compiler et installer le noyau**
+
+```bash
+make -j$(nproc)          # compiler le noyau
+make modules_install      # installer les modules
+make install              # installer vmlinuz, System.map et config
+```
+
+---
+
+## **5️⃣ Installer GRUB2 et générer grub.cfg**
+
+### Vérifier que grub est installé
+
+```bash
+emerge --noreplace sys-boot/grub
+```
+
+### Installer GRUB dans le MBR
+
+```bash
+grub-install /dev/sda
+grub-mkconfig -o /boot/grub/grub.cfg
+```
+
+> `/dev/sda` est le disque principal ; ne pas mettre la partition (`/dev/sda1`) pour le BIOS.
+
+---
+
+## **6️⃣ Configurer root et logs**
+
+```bash
+passwd             # définir le mot de passe root
+emerge --noreplace syslog-ng logrotate
+rc-update add syslog-ng default
+```
+
+---
+
+## **7️ Finaliser et redémarrer**
+
+```bash
+exit                           # sortir du chroot
+umount -R /mnt/gentoo          # démonter toutes les partitions
+swapoff /dev/sda2               # désactiver la swap
+reboot
+```

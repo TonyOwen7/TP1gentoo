@@ -259,7 +259,9 @@ fi
 log_info "1/6 - Configuration clavier français"
 cat > /etc/conf.d/keymaps <<'EOF'
 keymap="fr-latin1"
-EOF
+EOF63
+93
+
 log_success "Clavier: fr-latin1"
 
 # Locales
@@ -274,7 +276,7 @@ eselect locale set fr_FR.utf8 >/dev/null 2>&1 || eselect locale set 4 >/dev/null
 log_success "Locales configurées"
 
 env-update >/dev/null 2>&1
-source /etc/profile
+ource /etc/profile
 
 # Hostname
 log_info "3/6 - Configuration hostname"
