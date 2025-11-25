@@ -103,3 +103,161 @@ umount -R /mnt/gentoo          # démonter toutes les partitions
 swapoff /dev/sda2               # désactiver la swap
 reboot
 ```
+
+Voici un résumé détaillé en français avec les commandes à utiliser pour ces exercices sous Gentoo/OpenRC :
+
+---
+
+### **Exercice 2.8 – Création d’un utilisateur avec droits d’administration**
+
+1. Crée un utilisateur `Tony` (remplace par ton nom si nécessaire) :
+
+```bash
+useradd -m -G users,wheel -s /bin/bash Tony
+```
+
+2. Défini un mot de passe pour cet utilisateur :
+
+```bash
+passwd Tony
+```
+
+3. Installer `sudo` si ce n’est pas déjà fait :
+
+```bash
+emerge --noreplace sudo
+```
+
+4. Éditer le fichier sudoers pour permettre aux utilisateurs du groupe `wheel` d’utiliser sudo :
+
+```bash
+EDITOR=nano visudo
+```
+
+* Décommenter ou ajouter la ligne :
+
+```
+%wheel ALL=(ALL) ALL
+```
+
+5. Vérifie que Tony peut exécuter des commandes en root :
+
+```bash
+su - Tony
+sudo whoami
+```
+
+> La sortie doit être `root`.
+
+---
+
+### **Exercice 2.9 – Activer les quotas pour Tony**
+
+1. Modifier `/etc/fstab` pour activer les quotas sur la partition root (ou celle désirée) :
+
+```
+LABEL=root / ext4 defaults,usrquota,grpquota 0 1
+```
+
+2. Remonter la partition avec quotas :
+
+```bash
+mount -o remount /
+```
+
+3. Créer les fichiers de quotas et générer la base :
+
+```bash
+quotacheck -cum /
+quotaon -v /
+```
+
+4. Limiter Tony à 200 Mo :
+
+```bash
+edquota -u Tony
+```
+
+* Dans l’éditeur, mettre `200M` pour soft et hard limit sur `blocks`.
+
+5. Tester la limite :
+
+```bash
+su - Tony
+dd if=/dev/zero of=test.txt bs=1M count=300
+```
+
+> Tu dois obtenir une erreur de dépassement de quota.
+
+---
+
+### **Accès distant SSH**
+
+1. Installer OpenSSH :
+
+```bash
+emerge --noreplace openssh
+```
+
+2. Activer SSH au démarrage (OpenRC) :
+
+```bash
+rc-update add sshd default
+```
+
+3. Démarrer le service immédiatement :
+
+```bash
+/etc/init.d/sshd start
+```
+
+4. Configurer la VM pour rediriger le port local 2222 vers le port 22 de la VM.
+
+5. Test de connexion depuis l’hôte :
+
+```bash
+ssh -p 2222 Tony@localhost
+```
+
+---
+
+### **Exercice 2.10 – Installer hwloc dans le home de Tony**
+
+1. Télécharger et extraire hwloc dans `/home/Tony/usr` :
+
+```bash
+su - Tony
+mkdir -p ~/usr
+cd ~/usr
+wget https://www.open-mpi.org/software/hwloc/v2.11/hwloc-2.11.2.tar.gz
+tar xzf hwloc-2.11.2.tar.gz
+cd hwloc-2.11.2
+./configure --prefix=$HOME/usr
+make
+make install
+```
+
+---
+
+### **Exercice 2.11 – Configurer l’environnement pour hwloc**
+
+1. Ajouter le chemin `~/usr/bin` à la variable PATH dans `.bashrc` ou `.profile` :
+
+```bash
+echo 'export PATH=$HOME/usr/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+2. Tester la commande :
+
+```bash
+hwloc-ls
+```
+
+> La commande doit fonctionner sans indiquer le chemin complet.
+
+---
+
+Si tu veux, je peux te rédiger un **script automatique** qui fait tous ces exercices pour toi dans l’ordre, pour éviter de taper chaque commande à la main.
+
+Veux‑tu que je fasse ça ?
