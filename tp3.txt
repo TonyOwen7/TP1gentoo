@@ -1,0 +1,475 @@
+Très bien — on remet la table proprement, en français, avec un fil clair et sans surcharge. Voici les exercices 3.1 à 3.3 expliqués simplement et proprement.
+
+---
+
+# **Exercice 3.1 — Préparation des machines virtuelles**
+
+On doit partir de ta VM Gentoo d’origine (fonctionnelle), puis en créer deux clones :
+
+* **client1**
+* **router**
+
+### **Configuration réseau dans VirtualBox**
+
+### **Machine : router**
+
+Elle doit avoir **deux interfaces** :
+
+1. **eth0 : NAT (accès Internet)**
+
+   * C’est l’interface qui permet au routeur de parler au monde extérieur.
+   * Dans VirtualBox :
+
+     * *Paramètres → Réseau → Carte 1 → Mode d’accès réseau : NAT*
+
+2. **eth1 : réseau interne "istycorp"**
+
+   * C’est le réseau local interne entre le routeur et les clients.
+   * Dans VirtualBox :
+
+     * *Paramètres → Réseau → Carte 2 → Mode d’accès réseau : Réseau interne*
+     * Nom du réseau interne : **istycorp**
+
+---
+
+### **Machine : client1**
+
+Elle doit avoir **une seule interface** :
+
+* **eth0 : réseau interne "istycorp"**
+
+  * Même configuration que l’interface interne du routeur.
+  * Dans VirtualBox :
+
+    * *Paramètres → Réseau → Carte 1 → Mode d’accès réseau : Réseau interne*
+    * Nom : **istycorp**
+
+---
+
+# **Exercice 3.2 — Pourquoi ne pas connecter directement les clients à Internet ?**
+
+Minimum **trois raisons**, toutes fondamentales :
+
+### **1. Sécurité**
+
+Les clients seraient exposés directement aux attaques :
+
+* scans de ports,
+* malware,
+* exploitation de failles,
+* etc.
+
+Un routeur fait office de barrière, NAT, firewall, bouclier.
+
+### **2. Gestion centralisée**
+
+Le routeur :
+
+* distribue les IP (DHCP),
+* gère les règles de pare-feu,
+* fait du NAT,
+* peut enregistrer du trafic,
+* applique des politiques réseau.
+
+Sans routeur, chaque machine serait livrée à elle-même.
+
+### **3. Économie d’adresses IP publiques**
+
+Sans routeur, il faudrait une adresse IP **publique** par machine.
+On utilise le NAT pour partager **une seule IP** vers Internet.
+
+### Bonus (pas obligatoire mais juste)
+
+* Contrôle du trafic sortant
+* Contrôle de la bande passante
+* Isolation entre machines
+
+---
+
+# **Exercice 3.3 — Rôle du serveur DHCP et des serveurs DNS**
+
+### **Serveur DHCP**
+
+Il attribue automatiquement aux clients :
+
+* une adresse IP,
+* un masque de réseau,
+* une passerelle par défaut,
+* des DNS.
+
+Autrement dit :
+**il automatise la configuration réseau des machines du LAN.**
+
+Sans DHCP, chaque machine doit être configurée à la main.
+
+---
+
+### **Serveur DNS**
+
+Il traduit les noms de domaine en adresses IP.
+
+Exemple :
+`www.google.com` → `142.250.150.36`
+
+Sans DNS, Internet serait une mer de chiffres inhospitaliers, un peu comme une ville où les rues n’auraient plus de noms mais seulement des coordonnées GPS.
+
+---
+
+
+
+
+Très bien, reprenons pas à pas la configuration manuelle et les exercices que tu cites 👇  
+
+---
+
+### 🔑 Exercice 3.4 – Installation SSH sur le routeur
+- Installe le serveur SSH (par exemple `openssh` sur Gentoo) :  
+  ```bash
+  emerge --ask net-misc/openssh
+  rc-update add sshd default
+  /etc/init.d/sshd start
+  ```
+- Dans VirtualBox, configure une **redirection de port** sur l’interface NAT :  
+  - Exemple : rediriger le port hôte `2222` vers le port invité `22`.  
+  - Tu pourras ensuite te connecter avec :  
+    ```bash
+    ssh -p 2222 user@localhost
+    ```
+
+---
+
+### 🖥️ Exercice 3.5 – Nom d’hôte et domaine local
+- Changer le nom d’hôte du client :  
+  ```bash
+  hostnamectl set-hostname client1
+  ```
+- Vérifier le domaine local :  
+  ```bash
+  dnsdomainname
+  ```
+- Tu peux aussi vérifier dans `/etc/hosts` et `/etc/hostname` que le nom est cohérent.
+
+---
+
+### 🌐 Exercice 3.6 – Configuration IP manuelle
+Sur le **routeur** :
+```bash
+ifconfig eth1 192.168.0.1 netmask 255.255.255.0 up
+```
+Sur le **client1** :
+```bash
+ifconfig eth0 192.168.0.2 netmask 255.255.255.0 up
+```
+- Teste la connectivité :  
+  ```bash
+  ping 192.168.0.1   # depuis client1
+  ping 192.168.0.2   # depuis routeur
+  ```
+- Vérifie les tables de routage :  
+  ```bash
+  route -n
+  ```
+  👉 Tu verras que chaque machine connaît son réseau local (`192.168.0.0/24`) mais **le client n’a pas encore de passerelle vers Internet**.
+
+---
+
+### 📡 Exercice 3.7 – Configuration DNS
+- Sur le client, édite `/etc/resolv.conf` :  
+  ```bash
+  nameserver 8.8.8.8
+  nameserver 192.168.0.1
+  ```
+- Teste une résolution :  
+  ```bash
+  nslookup google.com
+  ```
+- Pourquoi ça ne marche pas ?  
+  - Parce que le client n’a pas encore de **passerelle par défaut** vers Internet.  
+  - Le routeur n’a pas encore activé le **routage** ni le **NAT**.  
+  - Résultat : les paquets sortants du client ne savent pas comment atteindre Internet.
+
+---
+
+### 🔄 Exercice 3.8 – Objectif du NAT
+- **NAT (Network Address Translation)** permet de partager une seule IP publique entre plusieurs machines internes.  
+- Il traduit les adresses privées (192.168.x.x) en une adresse publique unique.  
+- Avantage : économie d’IP et sécurité (les machines internes ne sont pas directement exposées).  
+- Avec **IPv6**, ce problème est largement réduit car l’espace d’adressage est quasi illimité → chaque machine peut avoir une adresse publique unique sans besoin de NAT.
+
+---
+
+### ⚙️ Exercice 3.9 – Activer le routage
+- Dans `/etc/sysctl.conf`, ajoute ou décommente :  
+  ```
+  net.ipv4.ip_forward = 1
+  ```
+- Sans redémarrer, active immédiatement :  
+  ```bash
+  sysctl -w net.ipv4.ip_forward=1
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  ```
+👉 Cela permet au routeur de **transférer les paquets entre ses deux interfaces** (interne ↔ externe).  
+
+---
+Parfait, tu arrives à l’étape clé : activer le **NAT** sur ton routeur pour que les clients du réseau interne puissent accéder à Internet via l’interface NAT du routeur.  
+
+---
+
+### ⚙️ Exercice 3.10 – Activer le support du NAT
+La commande que tu cites est correcte, mais détaillons son rôle :
+
+```bash
+iptables -t nat -A POSTROUTING -s 192.168.0.0/24 -o eth0 -j MASQUERADE
+```
+
+- **`-t nat`** : on agit sur la table NAT (Network Address Translation).  
+- **`-A POSTROUTING`** : on ajoute une règle dans la chaîne POSTROUTING (appliquée après la décision de routage).  
+- **`-s 192.168.0.0/24`** : cette règle s’applique aux paquets provenant du réseau interne `192.168.0.x`.  
+- **`-o eth0`** : les paquets sortant par l’interface externe (ici `eth0`, reliée à Internet via NAT).  
+- **`-j MASQUERADE`** : on applique le masquage, c’est-à-dire que les adresses IP privées sont remplacées par l’adresse publique du routeur.  
+
+👉 Résultat : les clients internes apparaissent sur Internet comme s’ils étaient le routeur lui-même.
+
+---
+
+### 🔍 Vérification
+1. Active le routage (si ce n’est pas déjà fait) :  
+   ```bash
+   sysctl -w net.ipv4.ip_forward=1
+   ```
+2. Vérifie les règles NAT :  
+   ```bash
+   iptables -t nat -L -n -v
+   ```
+3. Depuis **client1**, teste :  
+   ```bash
+   ping 8.8.8.8
+   ```
+   Si ça marche, le NAT est opérationnel.  
+4. Teste ensuite la résolution DNS (si `/etc/resolv.conf` est bien configuré) :  
+   ```bash
+   ping google.com
+   ```
+
+---
+
+### 🧩 Points pédagogiques
+- Le NAT est indispensable en IPv4 car l’espace d’adressage est limité.  
+- En IPv6, chaque machine pourrait avoir une adresse publique unique → NAT devient inutile.  
+- Le routeur joue donc le rôle de **passerelle** et de **traducteur d’adresses**.
+
+---
+Très bien, poursuivons avec les exercices 3.11 à 3.14 👇  
+
+---
+
+### 🛠️ Exercice 3.11 – Passerelle par défaut sur le client
+Sur **client1**, ajoute une route par défaut vers le routeur :
+```bash
+route add default gw 192.168.0.1 eth0
+```
+👉 Cela signifie que **tous les paquets destinés à Internet** (hors réseau local) seront envoyés au routeur, qui se charge de les traduire via NAT et de les transmettre vers l’extérieur.
+
+---
+
+### 🌐 Exercice 3.12 – Tester la connexion Internet
+- Depuis le client, teste :
+  ```bash
+  ping 8.8.8.8
+  traceroute 8.8.8.8
+  ```
+  Tu verras que le premier saut est `192.168.0.1` (le routeur), puis les différents routeurs intermédiaires jusqu’à Google.
+- Sur le routeur, tu peux observer le trafic avec :
+  ```bash
+  tcpdump -i eth0
+  ```
+  👉 Tu verras les paquets sortants du client, traduits par le NAT.
+
+---
+
+### 🔒 Exercice 3.13 – Sécurité des protocoles non chiffrés
+Avec des outils comme **tcpdump** ou **Wireshark**, tu peux capturer et lire :
+- Les requêtes HTTP (URL, paramètres, cookies).
+- Les réponses HTTP (contenu en clair).
+- Les identifiants transmis en clair (login/password si non HTTPS).
+👉 Remarque : **les communications non chiffrées sont vulnérables à l’interception et au vol de données**.  
+C’est pourquoi aujourd’hui on privilégie **HTTPS, SSH, TLS** pour garantir confidentialité et intégrité.
+
+---
+
+### 📂 Exercice 3.14 – FTP en mode actif
+- En **mode actif FTP**, le client ouvre une connexion vers le port 21 du serveur, puis le serveur tente de se connecter **en retour** vers un port aléatoire du client pour transférer les données.
+- Problème : derrière un routeur NAT, le client n’est pas directement accessible depuis Internet → le serveur ne peut pas initier la connexion retour.
+- Résultat : le mode actif échoue.  
+👉 Solution : utiliser le **mode passif FTP**, où le client initie **toutes les connexions** (commande + données), ce qui fonctionne derrière NAT.
+
+---
+
+Parfait, tu passes maintenant à la configuration **DHCP** pour automatiser l’attribution des adresses IP et des paramètres réseau 👇  
+
+---
+
+### ⚙️ Exercice 3.15 – Installer et configurer le serveur DHCP sur le routeur
+1. **Installer le paquet DHCP** (sur Gentoo, par exemple `net-misc/dhcp` ou `net-misc/dhcpd`) :  
+   ```bash
+   emerge --ask net-misc/dhcp
+   ```
+
+2. **Éditer le fichier de configuration** `/etc/dhcp/dhcpd.conf` :  
+   Exemple minimal adapté à ton TP :
+   ```conf
+   default-lease-time 600;
+   max-lease-time 7200;
+
+   option domain-name "istycorp.fr";
+   option domain-name-servers 193.55.xx.xx;   # Remplace par le DNS de l’université trouvé dans /etc/resolv.conf
+
+   subnet 192.168.0.0 netmask 255.255.255.0 {
+       range 192.168.0.2 192.168.0.10;
+       option routers 192.168.0.1;
+       option broadcast-address 192.168.0.255;
+   }
+   ```
+
+   👉 Ce fichier définit :
+   - La **plage d’IP** attribuées automatiquement (192.168.0.2 → 192.168.0.10).  
+   - Le **masque** (255.255.255.0).  
+   - La **passerelle par défaut** (192.168.0.1).  
+   - Le **domaine local** (istycorp.fr).  
+   - Le **DNS** (celui de l’université, récupéré dans `/etc/resolv.conf`).  
+
+3. **Lancer le service DHCP** :  
+   ```bash
+   rc-update add dhcpd default
+   /etc/init.d/dhcpd start
+   ```
+
+---
+
+### 🖥️ Exercice 3.16 – Validation côté client
+1. Sur **client1**, assure-toi que l’interface réseau est configurée en mode DHCP (pas d’IP statique).  
+   Tu peux relancer le service réseau ou simplement redémarrer la VM.  
+
+2. Vérifie l’attribution automatique :  
+   ```bash
+   ifconfig eth0
+   ```
+   👉 Tu devrais voir une IP entre `192.168.0.2` et `192.168.0.10`.
+
+3. Vérifie la passerelle et le DNS :  
+   ```bash
+   route -n
+   cat /etc/resolv.conf
+   ```
+   👉 La passerelle doit être `192.168.0.1` et le DNS celui de l’université.
+
+4. Teste la connectivité :  
+   ```bash
+   ping 8.8.8.8
+   ping google.com
+   ```
+   Si les deux fonctionnent, ton DHCP + NAT + DNS sont opérationnels 🎉.
+
+---
+
+Parfait, tu arrives à la partie **cache DNS et services bonus**. Je vais détailler chaque exercice 👇  
+
+---
+
+### 🧩 Exercice 3.17 – Installer et configurer dnsmasq
+1. **Installer dnsmasq** sur le routeur :  
+   ```bash
+   emerge --ask net-dns/dnsmasq
+   ```
+2. **Configurer dnsmasq** dans `/etc/dnsmasq.conf` :  
+   Exemple minimal :
+   ```conf
+   domain-needed
+   bogus-priv
+   no-resolv
+   server=193.55.xx.xx   # DNS de l’université
+   listen-address=127.0.0.1,192.168.0.1
+   ```
+   👉 Cela fait du routeur un cache DNS, intercalé entre le client et Internet.  
+3. **Configurer le client** pour utiliser le routeur comme DNS :  
+   Dans `/etc/resolv.conf` du client :
+   ```conf
+   nameserver 192.168.0.1
+   ```
+
+---
+
+### 📑 Exercice 3.18 – Résolutions internes via `/etc/hosts`
+Sur le routeur, édite `/etc/hosts` :
+```conf
+192.168.0.1 router.istycorp.fr router
+192.168.0.2 client1.istycorp.fr client1
+```
+👉 dnsmasq utilisera ces entrées locales.  
+Teste depuis le client :
+```bash
+ping client1.istycorp.fr
+ping router.istycorp.fr
+```
+Tu verras que la résolution passe par le cache DNS du routeur.
+
+---
+
+### ⚠️ Exercice 3.19 – Écraser une résolution
+Ajoute dans `/etc/hosts` du routeur :
+```conf
+192.168.0.1 google.com
+```
+👉 Le client sera redirigé vers le routeur lorsqu’il demande `google.com`.  
+**Remarque sécurité** :  
+- Sur un réseau dont tu n’es pas maître, un administrateur malveillant peut détourner les résolutions DNS (DNS spoofing).  
+- Cela permet de rediriger vers de faux sites (phishing, vol de données).  
+- **Solution** : utiliser des connexions sécurisées (HTTPS/TLS) et vérifier les certificats. Le chiffrement garantit que même si la résolution est détournée, la connexion échouera si le certificat n’est pas valide.
+
+---
+
+### 📂 Exercice 3.20 – Serveur NFS
+1. **Installer NFS sur le routeur** :  
+   ```bash
+   emerge --ask net-fs/nfs-utils
+   ```
+2. **Configurer l’export** dans `/etc/exports` :  
+   ```conf
+   /home *(rw,sync,no_root_squash)
+   ```
+3. **Démarrer NFS** :  
+   ```bash
+   /etc/init.d/nfs start
+   ```
+4. **Monter sur le client** :  
+   ```bash
+   mount -t nfs 192.168.0.1:/home /mnt/home
+   ```
+
+---
+
+### 🔒 Exercice 3.21 – Sécurité des droits utilisateurs
+- Les droits Unix (lecture/écriture/exécution) sont respectés par NFS.  
+- Mais attention : si le client est compromis, il peut usurper des UID/GID → les restrictions ne sont pas toujours fiables.  
+- **Bonne pratique** : utiliser `root_squash`, Kerberos ou un système d’authentification fort pour éviter les abus.
+
+---
+
+### 🔑 Bonus – Redirection SSH
+1. Installe SSH sur le client :
+   ```bash
+   emerge --ask net-misc/openssh
+   /etc/init.d/sshd start
+   ```
+2. Sur le routeur, ajoute une règle de redirection NAT :  
+   ```bash
+   iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 2223 -j DNAT --to-destination 192.168.0.2:22
+   ```
+3. Sur la machine hôte (VirtualBox), configure une redirection du port `2223` vers le routeur.  
+4. Tu pourras te connecter ainsi :
+   ```bash
+   ssh -p 2223 user@localhost
+   ```
+
+---
+

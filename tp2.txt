@@ -258,6 +258,252 @@ hwloc-ls
 
 ---
 
-Si tu veux, je peux te rédiger un **script automatique** qui fait tous ces exercices pour toi dans l’ordre, pour éviter de taper chaque commande à la main.
+Très bien — je vais te faire un **TP complet, clair et opérationnel**, qui réunit **tous les exercices (2.12 → 2.15)**, avec **les commandes + explications**.
+Tu pourras suivre étape par étape et vérifier à chaque point que tu es sur la bonne trajectoire.
+Je le formule comme un guide pédagogique, pas comme un script automatique.
 
-Veux‑tu que je fasse ça ?
+---
+
+# 🧩 **TP LVM /home — version complète et expliquée**
+
+---
+
+# **📘 Exercice 2.12 — Comprendre comment agrandir une partition**
+
+## 👉 **Cas 1 : agrandir /home qui est en LVM**
+
+Si `/home` est déjà sous LVM, le plan est simple :
+
+1. Ajouter un disque (ou utiliser un espace libre)
+2. Mettre une nouvelle partition en *physical volume*
+
+   ```bash
+   pvcreate /dev/sdb1
+   ```
+3. L'ajouter au *volume group*
+
+   ```bash
+   vgextend vg_home /dev/sdb1
+   ```
+4. Étendre le *logical volume*
+
+   ```bash
+   lvextend -l +100%FREE /dev/vg_home/home
+   ```
+5. Agrandir le système de fichiers
+
+   ```bash
+   resize2fs /dev/vg_home/home
+   ```
+
+### 🎯 Résultat : `/home` gagne de l’espace sans redémarrage.
+
+---
+
+## 👉 **Cas 2 : agrandir /**
+
+Beaucoup plus délicat, car `/` est souvent non LVM.
+Solution :
+
+* Démarrer sur live CD
+* Faire des copies avec `rsync`
+* Recréer `/` sous LVM
+* Restaurer
+
+Dans la pratique : évité en production quand possible.
+
+---
+
+# **📘 Exercice 2.13 — Convertir /home en LVM**
+
+Ici tu l’as fait, mais je récapitule proprement.
+
+---
+
+## 🎒 **1. Faire une archive de /home**
+
+Depuis `/` ou ailleurs (pas à l’intérieur de /home !) :
+
+```bash
+cd /
+sudo tar czpf /root/home_backup.tar.gz home
+```
+
+**Pourquoi ces options ?**
+
+* **c** → create
+* **z** → gzip
+* **p** → preserve permissions
+* **f** → filename
+* **home** → le dossier à archiver
+
+📦 Tu obtiens `/root/home_backup.tar.gz` contenant tout /home + permissions + attributs.
+
+---
+
+## 🔥 **2. Supprimer l’ancienne partition /home**
+
+Démonter /home :
+
+```bash
+sudo umount /home
+```
+
+Vérifier :
+
+```bash
+mount | grep home
+```
+
+Depuis `fdisk` ou `cfdisk`, efface `/dev/sda4` (ou autre partition /home).
+
+---
+
+## 🧱 **3. Créer LVM**
+
+Créer un PV :
+
+```bash
+sudo pvcreate /dev/sda4
+```
+
+Créer un VG :
+
+```bash
+sudo vgcreate vg_home /dev/sda4
+```
+
+Créer un LV pour /home :
+
+```bash
+sudo lvcreate -l 100%FREE -n home vg_home
+```
+
+Formatage :
+
+```bash
+sudo mkfs.ext4 /dev/vg_home/home
+```
+
+---
+
+## 🗄️ **4. Monter et restaurer**
+
+Créer point de montage :
+
+```bash
+sudo mount /dev/vg_home/home /home
+```
+
+Restaurer l’archive :
+
+```bash
+cd /
+sudo tar xzpf /root/home_backup.tar.gz
+```
+
+Vérifier :
+
+```bash
+ls -l /home
+```
+
+---
+
+## 📁 **5. Mise à jour de /etc/fstab**
+
+Tu dois avoir *seulement* :
+
+```
+/dev/vg_home/home   /home   ext4   noatime,usrquota,grpquota   0 2
+```
+
+Supprime ou commente la ligne `/dev/sda4`.
+
+---
+
+# **📘 Exercice 2.14 — Extension de /home avec un nouveau disque**
+
+Disons que tu ajoutes **/dev/sdb** de 10 Go.
+
+---
+
+## ⚙️ **1. Création de partition**
+
+```bash
+sudo cfdisk /dev/sdb
+```
+
+Créer :
+
+* 1 partition Linux (`/dev/sdb1`)
+* Type “Linux filesystem”
+
+---
+
+## 🔋 **2. Convertir en physical volume**
+
+```bash
+sudo pvcreate /dev/sdb1
+```
+
+Vérifier :
+
+```bash
+sudo pvs
+```
+
+---
+
+## 🧩 **3. Étendue du volume group**
+
+```bash
+sudo vgextend vg_home /dev/sdb1
+```
+
+Vérifier :
+
+```bash
+sudo vgs
+```
+
+Tu dois voir **vg_home** avec plus d’espace.
+
+---
+
+## 📏 **4. Étendre le logical volume**
+
+```bash
+sudo lvextend -l +100%FREE /dev/vg_home/home
+```
+
+---
+
+## 🌱 **5. Agrandir le système de fichier ext4**
+
+```bash
+sudo resize2fs /dev/vg_home/home
+```
+
+Vérifie la nouvelle taille :
+
+```bash
+df -h | grep home
+```
+
+🎉 `/home` est maintenant plus grand.
+
+---
+
+# **📘 Exercice 2.15 — Quel danger avec disques physiques ?**
+
+Si tu étends LVM sur **plusieurs disques physiques**, ton volume devient :
+
+🌐 *un grand lac posé sur plusieurs roches*
+
+Si **un seul disque meurt → tout LVM meurt** (données de /home incluses).
+C’est similaire à du RAID0, mais **sans sécurité**.
+
+👉 **Donc : importante vulnérabilité : un disque perdu = données perdues.**
+👉 Solution réaliste : RAID1/5/6/10 sous LVM.
+
