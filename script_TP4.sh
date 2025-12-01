@@ -5,6 +5,19 @@
 # Script pour Gentoo avec OpenRC
 # ============================================
 
+
+SECRET_CODE="1234"
+
+read -sp "🔑 Entrez le code pour exécuter ce script : " USER_CODE
+echo
+if [ "$USER_CODE" != "$SECRET_CODE" ]; then
+  echo "❌ Code incorrect. Exécution annulée."
+  exit 1
+fi
+
+echo "✅ Code correct, poursuite de l'exécution..."
+
+
 # Variables
 SERVER_IP="192.168.1.100"
 MYSQL_ROOT_PASSWORD="SecurePassword123"
