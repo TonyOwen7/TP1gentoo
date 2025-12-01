@@ -22,6 +22,16 @@ SCRIPT_VERSION="TP6-v1.0"
 # FONCTIONS DE BASE
 # ----------------------------------------------------------------------------
 
+
+SECRET_CODE="1234"
+
+read -sp "🔑 Entrez le code pour exécuter ce script : " USER_CODE
+echo
+if [ "$USER_CODE" != "$SECRET_CODE" ]; then
+  echo "❌ Code incorrect. Exécution annulée."
+  exit 1
+fi
+
 # Initialisation du système
 init_system() {
     echo "=== TP6 - SAUVEGARDE ET RESTAURATION ==="
