@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # TP6 COMPLET - SAUVEGARDE ET RESTAURATION
-# Script unique avec toutes les fonctionnalités du TP
+# Version adaptée pour Gentoo avec gestion des erreurs de dépendances
 # ============================================================================
 
 set -e  # Arrêter en cas d'erreur
@@ -9,10 +9,10 @@ set -e  # Arrêter en cas d'erreur
 # ----------------------------------------------------------------------------
 # CONFIGURATION GLOBALE
 # ----------------------------------------------------------------------------
-readonly VERSION="TP6-Complete-v2.0"
+readonly VERSION="TP6-Gentoo-v2.1"
 readonly CONFIG_FILE="/etc/tp6_backup.conf"
-readonly BACKUP_ROOT="/mnt/backup_tp6"
-readonly LOG_DIR="/var/log/tp6"
+readonly BACKUP_ROOT="/mnt/backup"
+readonly LOG_DIR="/var/log/backup"
 readonly LOCK_FILE="/var/run/tp6.lock"
 readonly RETENTION_DAYS=30
 readonly DATE=$(date +%Y%m%d_%H%M%S)
@@ -25,21 +25,23 @@ LDAP_PASS=""
 WORDPRESS_DIR="/var/www/wordpress"
 
 # ----------------------------------------------------------------------------
-# FONCTIONS D'AFFICHAGE ET LOGGING
+# FONCTIONS D'AFFICHAGE
 # ----------------------------------------------------------------------------
 print_header() {
     clear
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                 TP6 - SAUVEGARDE ET RESTAURATION             ║"
-    echo "║                   Script Complet - Gentoo                    ║"
+    echo "║              TP6 - SAUVEGARDE ET RESTAURATION                ║"
+    echo "║                     Système Gentoo                           ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
 }
 
-print_menu() {
-    echo "▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
-    echo "MENU PRINCIPAL:"
-    echo "──────────────────────────────────────────────────────────────────"
+print_section() {
+    echo ""
+    echo "══════════════════════════════════════════════════════════════"
+    echo "  $1"
+    echo "══════════════════════════════════════════════════════════════"
+    echo ""
 }
 
 log() {
@@ -48,188 +50,50 @@ log() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local log_file="$LOG_DIR/tp6_$(date +%Y%m).log"
     
-    # Créer le répertoire de logs si nécessaire
     mkdir -p "$LOG_DIR"
     
-    # Couleurs pour la console
     case $level in
         "SUCCESS") echo -e "\e[32m[$timestamp] ✓ $message\e[0m" ;;
         "INFO") echo -e "\e[34m[$timestamp] ℹ $message\e[0m" ;;
         "WARNING") echo -e "\e[33m[$timestamp] ⚠ $message\e[0m" ;;
         "ERROR") echo -e "\e[31m[$timestamp] ✗ $message\e[0m" ;;
-        "DEBUG") echo -e "\e[90m[$timestamp] 🔍 $message\e[0m" ;;
         *) echo "[$timestamp] $message" ;;
     esac
     
-    # Écrire dans le fichier log
     echo "[$timestamp] $level: $message" >> "$log_file"
 }
 
 # ----------------------------------------------------------------------------
-# FONCTIONS D'INITIALISATION
+# EXERCICE 6.6-6.7 : CONFIGURATION DU DISQUE
 # ----------------------------------------------------------------------------
-init_system() {
+configure_disk() {
     print_header
-    echo "INITIALISATION DU SYSTÈME TP6"
-    echo ""
+    print_section "EXERCICE 6.6-6.7 : CONFIGURATION DU DISQUE DE BACKUP"
     
-    # Vérifier les privilèges root
-    if [ "$EUID" -ne 0 ]; then
-        log "ERROR" "Ce script doit être exécuté en tant que root."
-        echo "Utilisez: sudo $0"
-        exit 1
-    fi
-    
-    # Créer les répertoires nécessaires
-    mkdir -p "$BACKUP_ROOT" "$LOG_DIR"
-    chmod 750 "$BACKUP_ROOT"
-    
-    # Vérifier si le système est Gentoo
-    if [ ! -f "/etc/gentoo-release" ]; then
-        log "WARNING" "Ce script est optimisé pour Gentoo, mais le système détecté est:"
-        cat /etc/os-release 2>/dev/null || echo "Système non identifié"
-        read -p "Continuer malgré tout? (o/N): " choice
-        [[ "$choice" != "o" && "$choice" != "O" ]] && exit 1
-    fi
-    
-    # Charger ou créer la configuration
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-        log "SUCCESS" "Configuration chargée: $CONFIG_FILE"
-    else
-        create_config
-    fi
-    
-    # Vérifier les dépendances
-    check_dependencies
-    
-    log "SUCCESS" "Système TP6 initialisé avec succès"
-    sleep 2
-}
-
-create_config() {
-    cat > "$CONFIG_FILE" << EOF
-# Configuration TP6 - Sauvegarde et Restauration
-# Généré le $(date)
-
-# Chemins
-BACKUP_ROOT="$BACKUP_ROOT"
-LOG_DIR="$LOG_DIR"
-
-# Paramètres de sauvegarde
-RETENTION_DAYS=$RETENTION_DAYS
-COMPRESSION_LEVEL=6
-
-# MySQL
-MYSQL_USER="$MYSQL_USER"
-MYSQL_PASS="VOTRE_MOT_DE_PASSE_MYSQL_ICI"
-MYSQL_HOST="localhost"
-
-# LDAP
-LDAP_ADMIN="$LDAP_ADMIN"
-LDAP_PASS="VOTRE_MOT_DE_PASSE_LDAP_ICI"
-LDAP_BASE="dc=isty,dc=com"
-
-# WordPress
-WORDPRESS_DIR="$WORDPRESS_DIR"
-
-# Notifications
-NOTIFY_EMAIL="admin@istycorp.com"
-
-# LVM (Optionnel)
-USE_LVM="no"
-LVM_VG="vg00"
-LVM_LV="lv_home"
-LVM_SNAPSHOT_SIZE="5G"
-EOF
-    
-    chmod 600 "$CONFIG_FILE"
-    log "INFO" "Fichier de configuration créé: $CONFIG_FILE"
-    log "WARNING" "Modifiez les mots de passe dans: $CONFIG_FILE"
-    read -p "Appuyez sur Entrée pour continuer..." dummy
-}
-
-check_dependencies() {
-    log "INFO" "Vérification des dépendances..."
-    
-    local missing=()
-    
-    # Liste des commandes requises
-    local commands=(
-        "tar" "gzip" "bzip2"
-        "mysql" "mysqldump"
-        "ldapsearch" "slapcat"
-        "sha256sum" "md5sum"
-        "crontab" "df" "du"
-        "mount" "umount"
-        "lvcreate" "lvremove"
-    )
-    
-    for cmd in "${commands[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            missing+=("$cmd")
-        fi
-    done
-    
-    if [ ${#missing[@]} -gt 0 ]; then
-        log "WARNING" "Commandes manquantes: ${missing[*]}"
-        read -p "Installer les paquets nécessaires? (O/n): " choice
-        
-        if [[ "$choice" != "n" && "$choice" != "N" ]]; then
-            install_dependencies "${missing[@]}"
-        fi
-    else
-        log "SUCCESS" "Toutes les dépendances sont satisfaites"
-    fi
-}
-
-install_dependencies() {
-    log "INFO" "Installation des dépendances sur Gentoo..."
-    
-    # Mettre à jour le système
-    emerge --sync
-    
-    # Installer les paquets
-    emerge -av \
-        app-arch/tar \
-        app-arch/gzip \
-        app-arch/bzip2 \
-        app-arch/pigz \
-        dev-db/mysql \
-        dev-db/mariadb \
-        net-nds/openldap \
-        app-crypt/gnupg \
-        sys-process/cronie \
-        sys-fs/lvm2 \
-        net-misc/rsync
-    
-    log "SUCCESS" "Installation des dépendances terminée"
-}
-
-# ----------------------------------------------------------------------------
-# EXERCICE 6.6-6.7 : AJOUT ET CONFIGURATION DU DISQUE
-# ----------------------------------------------------------------------------
-exercice_6_6_7() {
-    print_header
-    echo "EXERCICE 6.6-6.7: AJOUT ET CONFIGURATION DU DISQUE DE BACKUP"
-    echo "─────────────────────────────────────────────────────────────"
-    
-    echo "Étapes:"
-    echo "1. Ajouter un disque dur dans VirtualBox/VMware"
-    echo "2. Démarrer la VM et détecter le nouveau disque"
-    echo "3. Partitionner, formater et monter le disque"
+    echo "Cette fonction configure un disque supplémentaire pour les sauvegardes."
     echo ""
     
     # Afficher les disques disponibles
-    echo "Disques actuellement détectés:"
-    echo "──────────────────────────────"
+    echo "Disques détectés :"
+    echo "────────────────"
     lsblk
+    echo ""
+    
+    read -p "Voulez-vous configurer un disque pour les sauvegardes ? (o/N) : " choice
+    if [[ "$choice" != "o" && "$choice" != "O" ]]; then
+        return
+    fi
     
     echo ""
-    echo "Configuration automatique du disque supplémentaire:"
-    echo "───────────────────────────────────────────────────"
+    echo "Instructions pour VirtualBox/VMware :"
+    echo "1. Arrêtez la VM"
+    echo "2. Ajoutez un nouveau disque dur"
+    echo "3. Redémarrez la VM"
+    echo "4. Exécutez à nouveau cette option"
+    echo ""
+    echo "Le disque sera automatiquement détecté et configuré."
     
-    # Chercher un disque non partitionné
+    # Vérifier les nouveaux disques
     local new_disk=""
     for disk in /dev/sd[b-z]; do
         if [ -b "$disk" ] && ! lsblk "$disk" | grep -q "part"; then
@@ -239,92 +103,250 @@ exercice_6_6_7() {
     done
     
     if [ -z "$new_disk" ]; then
-        log "ERROR" "Aucun disque supplémentaire non partitionné trouvé"
-        echo "Veuillez ajouter un disque dans l'interface de virtualisation"
-        read -p "Appuyez sur Entrée pour retourner au menu..." dummy
+        log "ERROR" "Aucun disque vierge détecté"
+        echo "Veuillez ajouter un disque dans votre virtualiseur."
+        read -p "Appuyez sur Entrée pour continuer..."
         return
     fi
     
-    echo "Disque détecté: $new_disk"
-    read -p "Configurer ce disque pour les sauvegardes? (O/n): " choice
+    echo ""
+    echo "Configuration de $new_disk..."
     
-    if [[ "$choice" == "n" || "$choice" == "N" ]]; then
-        return
-    fi
-    
-    # Partitionnement
-    log "INFO" "Création d'une partition unique sur $new_disk"
-    parted -s "$new_disk" mklabel gpt
-    parted -s "$new_disk" mkpart primary ext4 0% 100%
+    # Partitionner
+    echo "Création de la partition..."
+    echo -e "n\np\n1\n\n\nw" | fdisk "$new_disk" > /dev/null 2>&1
     
     local partition="${new_disk}1"
-    sleep 2  # Attendre que la partition soit créée
+    sleep 2
     
-    # Formatage
-    log "INFO" "Formatage de $partition en ext4"
-    mkfs.ext4 -L "BACKUP_TP6" "$partition"
+    # Formater
+    echo "Formatage en ext4..."
+    mkfs.ext4 -L "BACKUP_TP6" "$partition" > /dev/null 2>&1
     
-    # Configuration du montage
-    log "INFO" "Configuration du montage automatique"
-    
-    # Ajouter à fstab
-    if ! grep -q "BACKUP_TP6" /etc/fstab; then
-        echo "LABEL=BACKUP_TP6 $BACKUP_ROOT ext4 defaults,noatime 0 2" >> /etc/fstab
-    fi
-    
-    # Monter le disque
+    # Configurer le montage
+    echo "Configuration du montage..."
     mkdir -p "$BACKUP_ROOT"
+    echo "LABEL=BACKUP_TP6 $BACKUP_ROOT ext4 defaults,noatime 0 2" >> /etc/fstab
+    
+    # Monter
     mount "$BACKUP_ROOT"
     
-    # Vérification
+    # Vérifier
     if mountpoint -q "$BACKUP_ROOT"; then
-        log "SUCCESS" "Disque configuré et monté avec succès"
+        log "SUCCESS" "Disque configuré avec succès"
         echo ""
-        echo "Résumé:"
-        echo "  • Disque: $new_disk"
-        echo "  • Partition: $partition"
-        echo "  • Point de montage: $BACKUP_ROOT"
-        echo "  • Taille: $(df -h $BACKUP_ROOT | awk 'NR==2 {print $2}')"
-        echo ""
-        df -h "$BACKUP_ROOT"
+        echo "Résumé :"
+        echo "• Disque : $new_disk"
+        echo "• Partition : $partition"
+        echo "• Point de montage : $BACKUP_ROOT"
+        echo "• Taille : $(df -h $BACKUP_ROOT | awk 'NR==2 {print $2}')"
+        echo "• Utilisation : $(df -h $BACKUP_ROOT | awk 'NR==2 {print $5}')"
     else
-        log "ERROR" "Échec du montage du disque"
+        log "ERROR" "Échec du montage"
     fi
     
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    read -p "Appuyez sur Entrée pour continuer..."
 }
 
 # ----------------------------------------------------------------------------
-# EXERCICE 6.9 : ORGANISATION DES FICHIERS DE BACKUP
+# EXERCICE 6.1-6.5 : THÉORIE ET PLANIFICATION
 # ----------------------------------------------------------------------------
-exercice_6_9() {
+show_theory() {
     print_header
-    echo "EXERCICE 6.9: ORGANISATION DES FICHIERS DE BACKUP"
-    echo "─────────────────────────────────────────────────"
+    print_section "EXERCICES 6.1-6.5 : THÉORIE ET PLANIFICATION"
     
-    echo "Schéma d'organisation adopté:"
+    echo "1. SAUVEGARDE INCRÉMENTALE (Exercice 6.1)"
+    echo "─────────────────────────────────────────"
+    echo "Une sauvegarde incrémentale ne sauvegarde que les données modifiées"
+    echo "depuis la dernière sauvegarde (complète ou incrémentale)."
+    echo "Avantages : Rapide, peu d'espace utilisé"
+    echo "Inconvénients : Restauration complexe (nécessite la chaîne complète)"
+    echo ""
+    
+    echo "2. PLANNING DE SAUVEGARDE (Exercice 6.2)"
+    echo "────────────────────────────────────────"
+    echo "Notre stratégie :"
+    echo "• Dimanche 02:00 : Sauvegarde complète"
+    echo "• Lundi-Samedi 02:00 : Sauvegarde incrémentale"
+    echo "• 1er du mois 03:00 : Sauvegarde différentielle"
+    echo "Justification : Heures de faible activité, maintenance hebdomadaire"
+    echo ""
+    
+    echo "3. CONTENUS À SAUVEGARDER (Exercice 6.3)"
+    echo "────────────────────────────────────────"
+    echo "• /home/* : 10-50 GB (homes utilisateurs)"
+    echo "• Bases MySQL : 5-20 GB"
+    echo "• LDAP : 1-5 GB"
+    echo "• WordPress : 2-10 GB"
+    echo ""
+    
+    echo "4. SUPPORTS DE SAUVEGARDE (Exercice 6.4)"
+    echo "────────────────────────────────────────"
+    echo "• Disque dur : Rapide, capacité ↑, coût modéré"
+    echo "• SSD : Très rapide, durable, coût élevé"
+    echo "• Bande : Faible coût/GB, durable, lent"
+    echo "• Cloud : Accès distant, coût récurrent, dépendance réseau"
+    echo ""
+    
+    echo "5. STOCKAGE DES SUPPORTS (Exercice 6.5)"
+    echo "───────────────────────────────────────"
+    echo "1. Localisation hors site"
+    echo "2. Contrôle d'accès strict"
+    echo "3. Conditions environnementales contrôlées"
+    echo "4. Rotation régulière"
+    echo "5. Tests de restauration périodiques"
+    echo ""
+    
+    echo "6. CRITIQUE DU STOCKAGE DISQUE (Exercice 6.8)"
+    echo "─────────────────────────────────────────────"
+    echo "Avantages : Simple, rapide, économique"
+    echo "Inconvénients : Vulnérable aux pannes, pas de protection hors site"
+    echo "Amélioration : Ajouter une copie sur bande/cloud"
+    echo ""
+    
+    read -p "Appuyez sur Entrée pour continuer..."
+}
+
+# ----------------------------------------------------------------------------
+# INSTALLATION DES DÉPENDANCES (Gentoo spécifique)
+# ----------------------------------------------------------------------------
+install_dependencies() {
+    print_header
+    print_section "INSTALLATION DES DÉPENDANCES"
+    
+    echo "Cette fonction installe tous les paquets nécessaires pour le TP6."
+    echo "Sur Gentoo, cela peut prendre un certain temps."
+    echo ""
+    
+    read -p "Voulez-vous installer les dépendances ? (o/N) : " choice
+    if [[ "$choice" != "o" && "$choice" != "O" ]]; then
+        return
+    fi
+    
+    log "INFO" "Mise à jour du système..."
+    emerge --sync
+    emerge --update --deep --with-bdeps=y @world
+    
+    echo ""
+    echo "Installation des paquets de base..."
+    echo "───────────────────────────────────"
+    
+    # Paquets essentiels sans problèmes de dépendances
+    local basic_packages=(
+        "app-arch/tar"
+        "app-arch/gzip"
+        "app-arch/bzip2"
+        "app-arch/pigz"
+        "sys-fs/lvm2"
+        "net-misc/rsync"
+        "app-crypt/gnupg"
+        "mail-client/mailx"
+        "sys-process/cronie"
+        "net-nds/openldap"
+    )
+    
+    for pkg in "${basic_packages[@]}"; do
+        echo "Installation de $pkg..."
+        emerge -av "$pkg" --autounmask-continue
+    done
+    
+    echo ""
+    echo "Gestion de MySQL/MariaDB..."
+    echo "───────────────────────────"
+    
+    # Essayer MySQL d'abord (moins de problèmes de dépendances)
+    echo "1. Essai d'installation de MySQL..."
+    if emerge -av dev-db/mysql --autounmask-continue; then
+        log "SUCCESS" "MySQL installé avec succès"
+        MYSQL_TYPE="mysql"
+    else
+        echo ""
+        echo "2. Échec de MySQL, essai de MariaDB sans Perl..."
+        echo "   (Solution au problème dev-perl/DBD-MariaDB)"
+        
+        # Désactiver Perl pour MariaDB
+        echo "dev-db/mariadb -perl" >> /etc/portage/package.use/backup-tp6
+        
+        if emerge -av dev-db/mariadb --autounmask-continue; then
+            log "SUCCESS" "MariaDB installé sans support Perl"
+            MYSQL_TYPE="mariadb"
+        else
+            echo ""
+            echo "3. Installation minimale du client MySQL..."
+            echo "   (Pour se connecter à un serveur existant)"
+            emerge -av dev-db/mysql-connector-c --autounmask-continue
+            MYSQL_TYPE="client-only"
+            log "WARNING" "Seul le client MySQL est installé"
+        fi
+    fi
+    
+    echo ""
+    echo "Configuration des services..."
+    echo "────────────────────────────"
+    
+    # Activer les services
+    rc-update add cronie default
+    rc-update add slapd default
+    
+    if [ "$MYSQL_TYPE" = "mysql" ]; then
+        rc-update add mysql default
+    elif [ "$MYSQL_TYPE" = "mariadb" ]; then
+        rc-update add mariadb default
+    fi
+    
+    echo ""
+    echo "Création de l'utilisateur de backup..."
+    echo "──────────────────────────────────────"
+    useradd -m -s /bin/bash -G wheel backup
+    echo "backup:$(date +%s | sha256sum | base64 | head -c 16)" | chpasswd
+    
+    log "SUCCESS" "Installation des dépendances terminée"
+    echo ""
+    echo "Résumé :"
+    echo "• MySQL/MariaDB : $MYSQL_TYPE"
+    echo "• Services activés : cronie, slapd, $MYSQL_TYPE"
+    echo "• Utilisateur : backup (mot de passe généré)"
+    
+    read -p "Appuyez sur Entrée pour continuer..."
+}
+
+# ----------------------------------------------------------------------------
+# EXERCICE 6.9 : ORGANISATION DES BACKUPS
+# ----------------------------------------------------------------------------
+show_organization() {
+    print_header
+    print_section "EXERCICE 6.9 : ORGANISATION DES FICHIERS DE BACKUP"
+    
+    echo "Structure adoptée :"
     echo ""
     echo "$BACKUP_ROOT/"
-    echo "├── YYYYMMDD_HHMMSS_full/          # Sauvegarde complète"
-    echo "│   ├── homes/                     # Homes utilisateurs"
-    echo "│   ├── mysql/                     # Bases de données MySQL"
-    echo "│   ├── ldap/                      # Données LDAP"
-    echo "│   ├── wordpress/                 # Site WordPress"
-    echo "│   ├── system/                    # Informations système"
-    echo "│   ├── logs/                      # Logs de l'opération"
-    echo "│   └── checksums.sha256           # Vérification d'intégrité"
-    echo "├── YYYYMMDD_HHMMSS_incr/          # Sauvegarde incrémentale"
-    echo "└── YYYYMMDD_HHMMSS_diff/          # Sauvegarde différentielle"
+    echo "├── YYYYMMDD_HHMMSS_full/"
+    echo "│   ├── homes/          # Homes utilisateurs"
+    echo "│   ├── mysql/          # Bases MySQL"
+    echo "│   ├── ldap/           # Données LDAP"
+    echo "│   ├── wordpress/      # WordPress"
+    echo "│   ├── system/         # Informations système"
+    echo "│   ├── logs/           # Logs de l'opération"
+    echo "│   └── checksums.sha256"
+    echo "├── YYYYMMDD_HHMMSS_incr/"
+    echo "└── YYYYMMDD_HHMMSS_diff/"
     echo ""
     
-    echo "Caractéristiques:"
-    echo "  • Un dossier par sauvegarde avec horodatage"
-    echo "  • Séparation par type de données"
-    echo "  • Checksums pour vérification"
-    echo "  • Logs inclus dans chaque sauvegarde"
-    echo "  • Rétention: $RETENTION_DAYS jours"
+    echo "Caractéristiques :"
+    echo "• Un dossier par sauvegarde avec horodatage"
+    echo "• Séparation par type de données"
+    echo "• Checksums pour vérification d'intégrité"
+    echo "• Logs inclus dans chaque sauvegarde"
+    echo "• Rétention : $RETENTION_DAYS jours"
+    echo ""
     
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    echo "Avantages :"
+    echo "• Organisation claire et logique"
+    echo "• Facilité de restauration"
+    echo "• Traçabilité complète"
+    echo "• Gestion simplifiée de la rotation"
+    
+    read -p "Appuyez sur Entrée pour continuer..."
 }
 
 # ----------------------------------------------------------------------------
@@ -334,40 +356,29 @@ backup_homes() {
     local backup_type=$1
     local backup_path=$2
     
-    log "INFO" "Sauvegarde des homes utilisateurs (type: $backup_type)"
+    log "INFO" "Sauvegarde des homes (type: $backup_type)"
     
     local snapshot_file="$BACKUP_ROOT/homes_snapshot.sn"
     local tar_options="--create --preserve-permissions --xattrs --acls --selinux --numeric-owner --gzip"
     
     case $backup_type in
         "full")
-            log "INFO" "Création d'une sauvegarde complète"
-            
-            # Si un snapshot existe, le sauvegarder
-            if [ -f "$snapshot_file" ]; then
-                cp "$snapshot_file" "$backup_path/homes/snapshot_backup.sn"
-            fi
-            
-            # Créer une nouvelle sauvegarde complète
+            log "INFO" "Création sauvegarde complète"
             tar $tar_options \
                 --listed-incremental="$snapshot_file" \
                 --file="$backup_path/homes/homes_full_$DATE.tar.gz" \
                 --directory="/home" .
-            
-            # Marquer comme dernière sauvegarde complète
             echo "$backup_path" > "$BACKUP_ROOT/last_full.txt"
             ;;
             
         "incremental")
-            log "INFO" "Création d'une sauvegarde incrémentale"
-            
-            # Vérifier qu'une sauvegarde complète existe
             if [ ! -f "$snapshot_file" ]; then
-                log "WARNING" "Aucune sauvegarde complète trouvée, conversion en full"
+                log "WARNING" "Pas de snapshot, conversion en full"
                 backup_homes "full" "$backup_path"
                 return
             fi
             
+            log "INFO" "Création sauvegarde incrémentale"
             tar $tar_options \
                 --listed-incremental="$snapshot_file" \
                 --file="$backup_path/homes/homes_incr_$DATE.tar.gz" \
@@ -375,12 +386,10 @@ backup_homes() {
             ;;
             
         "differential")
-            log "INFO" "Création d'une sauvegarde différentielle"
-            
-            # Copier le snapshot pour le différentiel
             local diff_snapshot="$BACKUP_ROOT/homes_snapshot_diff.sn"
             cp "$snapshot_file" "$diff_snapshot"
             
+            log "INFO" "Création sauvegarde différentielle"
             tar $tar_options \
                 --listed-incremental="$diff_snapshot" \
                 --file="$backup_path/homes/homes_diff_$DATE.tar.gz" \
@@ -390,18 +399,15 @@ backup_homes() {
             ;;
     esac
     
-    # Vérifier l'intégrité de l'archive
+    # Vérification
     local archive=$(ls -t "$backup_path/homes/"*.tar.gz 2>/dev/null | head -1)
-    if [ -f "$archive" ]; then
-        if tar -tzf "$archive" > /dev/null 2>&1; then
-            log "SUCCESS" "Archive créée: $(basename $archive) ($(du -h $archive | cut -f1))"
-        else
-            log "ERROR" "Archive corrompue: $archive"
-            return 1
-        fi
+    if [ -f "$archive" ] && tar -tzf "$archive" > /dev/null 2>&1; then
+        log "SUCCESS" "Archive créée : $(basename $archive) ($(du -h $archive | cut -f1))"
+        return 0
+    else
+        log "ERROR" "Archive corrompue"
+        return 1
     fi
-    
-    return 0
 }
 
 # ----------------------------------------------------------------------------
@@ -410,51 +416,45 @@ backup_homes() {
 backup_mysql() {
     local backup_path=$1
     
-    log "INFO" "Sauvegarde des bases de données MySQL"
+    log "INFO" "Sauvegarde des bases MySQL"
     
-    # Vérifier la connexion MySQL
+    # Tester la connexion
     if ! mysql --user="$MYSQL_USER" --password="$MYSQL_PASS" -e "SELECT 1" > /dev/null 2>&1; then
-        log "ERROR" "Impossible de se connecter à MySQL"
+        log "ERROR" "Connexion MySQL impossible"
         return 1
     fi
     
-    # Obtenir la liste des bases de données (exclure les bases système)
+    # Liste des bases (exclure les bases système)
     local databases=$(mysql --user="$MYSQL_USER" --password="$MYSQL_PASS" \
         -e "SHOW DATABASES" | grep -Ev "(Database|information_schema|performance_schema|mysql|sys)")
     
     local total_size=0
     local db_count=0
     
-    # Sauvegarde individuelle de chaque base
     for db in $databases; do
-        log "INFO" "Sauvegarde de la base: $db"
-        
+        log "INFO" "Sauvegarde de $db"
         local dump_file="$backup_path/mysql/${db}_${DATE}.sql"
         
-        # Utiliser --single-transaction pour la cohérence (Exercice 6.13)
+        # --single-transaction pour la cohérence (Exercice 6.13)
         if mysqldump --user="$MYSQL_USER" \
                      --password="$MYSQL_PASS" \
                      --single-transaction \
                      --routines \
                      --triggers \
                      --events \
-                     --hex-blob \
                      "$db" > "$dump_file" 2>> "$backup_path/logs/mysql.log"
         then
-            # Compresser
             gzip "$dump_file"
-            
             local size=$(du -k "${dump_file}.gz" | cut -f1)
             total_size=$((total_size + size))
             db_count=$((db_count + 1))
-            
-            log "SUCCESS" "  ✓ $db: $(echo "scale=1; $size/1024" | bc) MB"
+            log "SUCCESS" "  ✓ $db : $(echo "scale=1; $size/1024" | bc) MB"
         else
-            log "ERROR" "  ✗ Échec de la sauvegarde de $db"
+            log "ERROR" "  ✗ Échec $db"
         fi
     done
     
-    # Sauvegarde complète de toutes les bases
+    # Sauvegarde complète
     log "INFO" "Sauvegarde de toutes les bases"
     mysqldump --user="$MYSQL_USER" \
               --password="$MYSQL_PASS" \
@@ -464,7 +464,7 @@ backup_mysql() {
               --events \
               --all-databases | gzip > "$backup_path/mysql/all_databases_${DATE}.sql.gz"
     
-    log "SUCCESS" "Sauvegarde MySQL terminée: $db_count bases, $(echo "scale=1; $total_size/1024" | bc) MB"
+    log "SUCCESS" "Sauvegarde MySQL : $db_count bases, $(echo "scale=1; $total_size/1024" | bc) MB"
     return 0
 }
 
@@ -474,45 +474,41 @@ backup_mysql() {
 backup_ldap() {
     local backup_path=$1
     
-    log "INFO" "Sauvegarde de la base LDAP"
+    log "INFO" "Sauvegarde LDAP"
     
-    # Vérifier si le service LDAP est actif
-    if ! systemctl is-active slapd > /dev/null 2>&1; then
-        log "WARNING" "Le service LDAP n'est pas actif"
+    # Vérifier le service
+    if ! /etc/init.d/slapd status > /dev/null 2>&1; then
+        log "WARNING" "Service LDAP inactif"
         return 1
     fi
     
-    # Méthode 1: slapcat (recommandée)
+    # Méthode slapcat
     if command -v slapcat > /dev/null 2>&1; then
-        log "INFO" "Utilisation de slapcat pour l'export"
-        
-        local ldif_file="$backup_path/ldap/ldap_full_${DATE}.ldif"
+        local ldif_file="$backup_path/ldap/ldap_${DATE}.ldif"
         
         if slapcat -v -l "$ldif_file" 2>> "$backup_path/logs/ldap.log"; then
             gzip "$ldif_file"
-            log "SUCCESS" "Export LDAP réussi: $(du -h ${ldif_file}.gz | cut -f1)"
+            log "SUCCESS" "LDAP exporté : $(du -h ${ldif_file}.gz | cut -f1)"
         else
-            log "ERROR" "Échec de l'export avec slapcat"
+            log "ERROR" "Échec slapcat"
             return 1
         fi
     else
-        # Méthode 2: ldapsearch
-        log "INFO" "Utilisation de ldapsearch pour l'export"
-        
+        # Méthode ldapsearch
         local ldif_file="$backup_path/ldap/ldap_${DATE}.ldif"
         
-        if ldapsearch -x -H ldap://localhost -b "dc=isty,dc=com" -D "$LDAP_ADMIN" \
-            -w "$LDAP_PASS" > "$ldif_file" 2>> "$backup_path/logs/ldap.log"
+        if ldapsearch -x -H ldap://localhost -b "dc=isty,dc=com" \
+            -D "$LDAP_ADMIN" -w "$LDAP_PASS" > "$ldif_file" 2>> "$backup_path/logs/ldap.log"
         then
             gzip "$ldif_file"
-            log "SUCCESS" "Export LDAP réussi"
+            log "SUCCESS" "LDAP exporté via ldapsearch"
         else
-            log "ERROR" "Échec de l'export avec ldapsearch"
+            log "ERROR" "Échec ldapsearch"
             return 1
         fi
     fi
     
-    # Sauvegarder également la configuration
+    # Configuration
     if [ -d "/etc/openldap" ]; then
         tar -czf "$backup_path/ldap/ldap_config_${DATE}.tar.gz" -C /etc openldap
         log "INFO" "Configuration LDAP sauvegardée"
@@ -522,27 +518,28 @@ backup_ldap() {
 }
 
 # ----------------------------------------------------------------------------
-# GENERATION DE CHECKSUMS (Exercice 6.16)
+# GÉNÉRATION CHECKSUMS (Exercice 6.16)
 # ----------------------------------------------------------------------------
 generate_checksums() {
     local backup_path=$1
     
-    log "INFO" "Génération des checksums d'intégrité"
+    log "INFO" "Génération des checksums"
     
-    # SHA256 pour tous les fichiers
+    # SHA256
     find "$backup_path" -type f \( -name "*.gz" -o -name "*.tar" -o -name "*.sql" -o -name "*.ldif" \) \
         -exec sha256sum {} \; > "$backup_path/checksums.sha256"
     
-    # MD5 supplémentaire
-    find "$backup_path" -type f \( -name "*.gz" -o -name "*.tar" -o -name "*.sql" -o -name "*.ldif" \) \
-        -exec md5sum {} \; > "$backup_path/checksums.md5"
-    
-    # Vérifier les checksums
+    # Vérification
     if cd "$backup_path" && sha256sum -c "checksums.sha256" > /dev/null 2>&1; then
-        log "SUCCESS" "Checksums vérifiés avec succès"
+        log "SUCCESS" "Checksums vérifiés"
+        
+        # MD5 additionnel
+        find "$backup_path" -type f \( -name "*.gz" -o -name "*.tar" -o -name "*.sql" -o -name "*.ldif" \) \
+            -exec md5sum {} \; > "$backup_path/checksums.md5"
+            
         return 0
     else
-        log "ERROR" "Erreur dans les checksums"
+        log "ERROR" "Erreur checksums"
         return 1
     fi
 }
@@ -550,25 +547,24 @@ generate_checksums() {
 # ----------------------------------------------------------------------------
 # EXERCICE 6.17 : CONFIGURATION CRON
 # ----------------------------------------------------------------------------
-exercice_6_17() {
+configure_cron() {
     print_header
-    echo "EXERCICE 6.17: CONFIGURATION DES TÂCHES CRON"
-    echo "────────────────────────────────────────────"
+    print_section "EXERCICE 6.17 : CONFIGURATION CRON"
     
     local cron_file="/etc/cron.d/tp6-backup"
     
-    echo "Planification proposée:"
+    echo "Planification proposée :"
     echo ""
-    echo "1. Sauvegarde complète   : Dimanche à 2h00"
-    echo "2. Sauvegarde incrémentale : Lundi-Samedi à 2h00"
-    echo "3. Sauvegarde différentielle : 1er du mois à 3h00"
-    echo "4. Nettoyage             : Tous les jours à 4h00"
-    echo "5. Vérification          : Vendredi à 5h00"
+    echo "Dimanche 02:00    : Backup complet"
+    echo "Lundi-Samedi 02:00 : Backup incrémentale"
+    echo "1er du mois 03:00 : Backup différentielle"
+    echo "Tous les jours 04:00 : Nettoyage"
+    echo "Vendredi 05:00    : Vérification"
     echo ""
     
-    read -p "Créer cette planification? (O/n): " choice
+    read -p "Créer cette planification ? (o/N) : " choice
     
-    if [[ "$choice" == "n" || "$choice" == "N" ]]; then
+    if [[ "$choice" != "o" && "$choice" != "O" ]]; then
         return
     fi
     
@@ -577,45 +573,39 @@ exercice_6_17() {
 # TP6 - Planification des sauvegardes
 # Généré le $(date)
 
-# Sauvegarde complète - Dimanche 2h00
-0 2 * * 0 root /usr/local/bin/tp6_complet.sh --cron full
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
-# Sauvegarde incrémentale - Lundi à Samedi 2h00
-0 2 * * 1-6 root /usr/local/bin/tp6_complet.sh --cron incremental
+# Backup complet - Dimanche 2h
+0 2 * * 0 root /usr/local/bin/tp6.sh --cron full
 
-# Sauvegarde différentielle - 1er du mois 3h00
-0 3 1 * * root /usr/local/bin/tp6_complet.sh --cron differential
+# Backup incrémentale - Lundi à Samedi 2h
+0 2 * * 1-6 root /usr/local/bin/tp6.sh --cron incremental
 
-# Nettoyage des anciennes sauvegardes - Tous les jours 4h00
-0 4 * * * root /usr/local/bin/tp6_complet.sh --cron cleanup
+# Backup différentielle - 1er du mois 3h
+0 3 1 * * root /usr/local/bin/tp6.sh --cron differential
 
-# Vérification d'intégrité - Vendredi 5h00
-0 5 * * 5 root /usr/local/bin/tp6_complet.sh --cron verify
+# Nettoyage - Tous les jours 4h
+0 4 * * * root /usr/local/bin/tp6.sh --cron cleanup
 
-# Test de restauration - Premier dimanche du mois 6h00
-0 6 * * 0 [ \$(date +\%d) -le 7 ] && /usr/local/bin/tp6_complet.sh --cron test-restore
+# Vérification - Vendredi 5h
+0 5 * * 5 root /usr/local/bin/tp6.sh --cron verify
 EOF
     
     chmod 644 "$cron_file"
     
-    log "SUCCESS" "Fichier cron créé: $cron_file"
+    log "SUCCESS" "Fichier cron créé : $cron_file"
     echo ""
-    echo "Contenu du fichier:"
-    echo "──────────────────"
+    echo "Contenu :"
     cat "$cron_file"
     
     echo ""
-    echo "Pour activer immédiatement:"
-    echo "  systemctl restart cronie"
-    echo "  systemctl enable cronie"
-    
-    read -p "Redémarrer le service cron maintenant? (O/n): " choice
-    if [[ "$choice" != "n" && "$choice" != "N" ]]; then
-        systemctl restart cronie
+    read -p "Redémarrer cron ? (o/N) : " restart_choice
+    if [[ "$restart_choice" == "o" || "$restart_choice" == "O" ]]; then
+        /etc/init.d/cronie restart
         log "SUCCESS" "Service cron redémarré"
     fi
     
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    read -p "Appuyez sur Entrée pour continuer..."
 }
 
 # ----------------------------------------------------------------------------
@@ -625,36 +615,33 @@ perform_backup() {
     local backup_type=$1
     
     print_header
-    echo "LANCEMENT D'UNE SAUVEGARDE: $backup_type"
-    echo "────────────────────────────────────────"
+    print_section "SAUVEGARDE : $backup_type"
     
-    # Vérifier que le point de montage existe
+    # Vérifier le point de montage
     if ! mountpoint -q "$BACKUP_ROOT" 2>/dev/null; then
-        log "ERROR" "Le répertoire $BACKUP_ROOT n'est pas monté"
-        echo "Utilisez l'option 1 pour configurer le disque de backup"
-        read -p "Appuyez sur Entrée pour continuer..." dummy
+        log "ERROR" "$BACKUP_ROOT n'est pas monté"
+        echo "Utilisez l'option 'Configurer le disque' d'abord."
+        read -p "Appuyez sur Entrée..."
         return 1
     fi
     
-    # Créer le répertoire de sauvegarde
+    # Créer la structure
     local backup_path="$BACKUP_ROOT/${DATE}_${backup_type}"
     mkdir -p "$backup_path"/{homes,mysql,ldap,wordpress,logs,system}
     
-    log "INFO" "Début de la sauvegarde $backup_type"
-    log "INFO" "Destination: $backup_path"
+    log "INFO" "Début : $backup_type → $backup_path"
     
-    # Sauvegarder les informations système
+    # Informations système
     save_system_info "$backup_path"
     
     # Exécuter les sauvegardes
     local errors=0
     
     echo ""
-    echo "Progression:"
+    echo "Progression :"
     echo "────────────"
     
-    # 1. Sauvegarde des homes
-    echo -n "1. Homes utilisateurs... "
+    echo -n "1. Homes... "
     if backup_homes "$backup_type" "$backup_path"; then
         echo "✓"
     else
@@ -662,8 +649,7 @@ perform_backup() {
         errors=$((errors + 1))
     fi
     
-    # 2. Sauvegarde MySQL
-    echo -n "2. Bases de données MySQL... "
+    echo -n "2. MySQL... "
     if backup_mysql "$backup_path"; then
         echo "✓"
     else
@@ -671,8 +657,7 @@ perform_backup() {
         errors=$((errors + 1))
     fi
     
-    # 3. Sauvegarde LDAP
-    echo -n "3. Base LDAP... "
+    echo -n "3. LDAP... "
     if backup_ldap "$backup_path"; then
         echo "✓"
     else
@@ -680,8 +665,7 @@ perform_backup() {
         errors=$((errors + 1))
     fi
     
-    # 4. Sauvegarde WordPress
-    echo -n "4. Site WordPress... "
+    echo -n "4. WordPress... "
     if backup_wordpress "$backup_path"; then
         echo "✓"
     else
@@ -689,8 +673,7 @@ perform_backup() {
         errors=$((errors + 1))
     fi
     
-    # 5. Génération des checksums
-    echo -n "5. Vérification d'intégrité... "
+    echo -n "5. Checksums... "
     if generate_checksums "$backup_path"; then
         echo "✓"
     else
@@ -698,61 +681,53 @@ perform_backup() {
         errors=$((errors + 1))
     fi
     
-    # Créer un rapport
+    # Rapport
     create_backup_report "$backup_path" "$backup_type" "$errors"
     
-    # Afficher le résumé
     echo ""
-    echo "RÉSUMÉ DE LA SAUVEGARDE:"
-    echo "────────────────────────"
-    echo "Type: $backup_type"
-    echo "Date: $(date)"
-    echo "Destination: $backup_path"
-    echo "Taille totale: $(du -sh $backup_path | cut -f1)"
-    echo "Erreurs: $errors"
+    echo "RÉSUMÉ :"
+    echo "────────"
+    echo "Type     : $backup_type"
+    echo "Date     : $(date)"
+    echo "Chemin   : $backup_path"
+    echo "Taille   : $(du -sh $backup_path | cut -f1)"
+    echo "Erreurs  : $errors"
     echo ""
     
     if [ $errors -eq 0 ]; then
-        log "SUCCESS" "Sauvegarde $backup_type terminée avec succès"
+        log "SUCCESS" "Sauvegarde réussie"
     else
-        log "WARNING" "Sauvegarde terminée avec $errors erreur(s)"
+        log "WARNING" "Sauvegarde avec $errors erreur(s)"
     fi
     
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    read -p "Appuyez sur Entrée..."
     return $errors
 }
 
 save_system_info() {
     local backup_path=$1
     
-    # Informations système
     uname -a > "$backup_path/system/uname.txt"
     df -h > "$backup_path/system/disk_usage.txt"
     free -h > "$backup_path/system/memory.txt"
     ps aux > "$backup_path/system/processes.txt"
-    
-    # Liste des utilisateurs
     getent passwd > "$backup_path/system/users.txt"
-    
-    # Configuration réseau
-    ip addr show > "$backup_path/system/network.txt"
 }
 
 backup_wordpress() {
     local backup_path=$1
     
-    # Vérifier si WordPress est installé
     if [ ! -d "$WORDPRESS_DIR" ]; then
-        log "WARNING" "Répertoire WordPress non trouvé: $WORDPRESS_DIR"
+        log "WARNING" "WordPress non trouvé : $WORDPRESS_DIR"
         return 1
     fi
     
-    # Sauvegarder les fichiers WordPress
+    # Fichiers
     tar -czf "$backup_path/wordpress/files_${DATE}.tar.gz" \
         -C "$(dirname $WORDPRESS_DIR)" \
         "$(basename $WORDPRESS_DIR)"
     
-    # Sauvegarder la base WordPress si elle existe
+    # Base de données
     if mysql --user="$MYSQL_USER" --password="$MYSQL_PASS" -e "USE wordpress" > /dev/null 2>&1; then
         mysqldump --user="$MYSQL_USER" \
                   --password="$MYSQL_PASS" \
@@ -773,107 +748,92 @@ create_backup_report() {
 RAPPORT DE SAUVEGARDE TP6
 =========================
 
-Informations générales
-──────────────────────
-Date: $(date)
-Type: $backup_type
-Hôte: $(hostname)
-Utilisateur: $(whoami)
-Chemin: $backup_path
+Date     : $(date)
+Type     : $backup_type
+Hôte     : $(hostname)
+Chemin   : $backup_path
 
-Statistiques
+STATISTIQUES
 ────────────
-Date début: $(cat $backup_path/logs/start_time.txt 2>/dev/null || echo "N/A")
-Date fin: $(date)
-Taille: $(du -sh $backup_path | cut -f1)
-Erreurs: $errors
+Taille   : $(du -sh $backup_path | cut -f1)
+Erreurs  : $errors
 
-Contenu
+CONTENU
 ───────
 $(find "$backup_path" -type f -name "*.gz" -o -name "*.tar" | xargs -I {} basename {} | sort)
 
-Système
-───────
-$(uname -a)
-
-Disque
-──────
-$(df -h $BACKUP_ROOT)
-
-Vérification
+VÉRIFICATION
 ────────────
-$(if [ $errors -eq 0 ]; then echo "STATUS: ✓ SUCCÈS"; else echo "STATUS: ✗ ÉCHEC"; fi)
+$(if [ $errors -eq 0 ]; then echo "STATUS : ✓ SUCCÈS"; else echo "STATUS : ✗ ÉCHEC"; fi)
 
-Instructions de restauration
-───────────────────────────
-Pour restaurer cette sauvegarde:
-1. sudo $0 --restore $backup_path
-2. Suivre les instructions à l'écran
-
+RESTAURATION
+────────────
+Pour restaurer :
+1. $0 --restore $backup_path
+2. Suivre les instructions
 EOF
 }
 
 # ----------------------------------------------------------------------------
-# EXERCICE 6.18 : GÉNÉRATION DE BACKUPS DE TEST
+# EXERCICE 6.18 : GÉNÉRATION DE BACKUPS TEST
 # ----------------------------------------------------------------------------
-exercice_6_18() {
+generate_test_backups() {
     print_header
-    echo "EXERCICE 6.18: GÉNÉRATION DE BACKUPS DE TEST"
-    echo "────────────────────────────────────────────"
+    print_section "EXERCICE 6.18 : GÉNÉRATION DE BACKUPS TEST"
     
-    echo "Cet exercice va générer:"
+    echo "Cet exercice génère :"
     echo "1. Un backup complet"
-    echo "2. Un backup incrémental"
+    echo "2. Un backup incrémentale"
+    echo ""
+    echo "Ces backups serviront pour les exercices suivants."
     echo ""
     
-    read -p "Générer un backup complet maintenant? (O/n): " choice
-    if [[ "$choice" != "n" && "$choice" != "N" ]]; then
+    read -p "Générer un backup complet ? (o/N) : " choice
+    if [[ "$choice" == "o" || "$choice" == "O" ]]; then
         perform_backup "full"
     fi
     
     echo ""
-    read -p "Générer un backup incrémental maintenant? (O/n): " choice
-    if [[ "$choice" != "n" && "$choice" != "N" ]]; then
-        # Créer un fichier de test pour l'incrémental
+    read -p "Générer un backup incrémentale ? (o/N) : " choice
+    if [[ "$choice" == "o" || "$choice" == "O" ]]; then
+        # Créer un fichier de test
         touch /home/test_file_incr_$DATE.txt
-        echo "Fichier de test pour backup incrémental" > /home/test_file_incr_$DATE.txt
+        echo "Test pour backup incrémentale" > /home/test_file_incr_$DATE.txt
         
         perform_backup "incremental"
         
-        # Nettoyer le fichier de test
+        # Nettoyer
         rm -f /home/test_file_incr_$DATE.txt
     fi
     
-    # Lister les sauvegardes créées
+    # Lister
     echo ""
-    echo "SAUVEGARDES DISPONIBLES:"
-    echo "───────────────────────"
+    echo "BACKUPS DISPONIBLES :"
+    echo "────────────────────"
     list_backups
 }
 
 # ----------------------------------------------------------------------------
-# EXERCICE 6.19 : TRANSFERT ET RESTAURATION
+# EXERCICE 6.19 : RESTAURATION COMPLÈTE
 # ----------------------------------------------------------------------------
-exercice_6_19() {
+restore_complete() {
     print_header
-    echo "EXERCICE 6.19: TRANSFERT ET RESTAURATION"
-    echo "────────────────────────────────────────"
+    print_section "EXERCICE 6.19 : RESTAURATION COMPLÈTE"
     
-    echo "Cette fonction simule le transfert vers une nouvelle machine"
-    echo "et la restauration complète des données."
+    echo "Cette fonction simule la restauration sur une nouvelle machine."
     echo ""
     
-    # Lister les sauvegardes disponibles
-    echo "Sauvegardes disponibles:"
+    # Lister les sauvegardes
+    echo "Sauvegardes disponibles :"
     echo "───────────────────────"
     list_backups_simple
     
     echo ""
-    read -p "Entrez la date de la sauvegarde à restaurer (ex: 20240115_020000): " backup_date
+    read -p "Date de la sauvegarde (ex: 20240115_020000) : " backup_date
     
     if [ -z "$backup_date" ]; then
         log "ERROR" "Date non spécifiée"
-        read -p "Appuyez sur Entrée pour continuer..." dummy
+        read -p "Appuyez sur Entrée..."
         return
     fi
     
@@ -881,77 +841,59 @@ exercice_6_19() {
     local backup_path=$(find "$BACKUP_ROOT" -type d -name "*${backup_date}*" | head -1)
     
     if [ -z "$backup_path" ] || [ ! -d "$backup_path" ]; then
-        log "ERROR" "Sauvegarde non trouvée: $backup_date"
-        read -p "Appuyez sur Entrée pour continuer..." dummy
+        log "ERROR" "Sauvegarde non trouvée"
+        read -p "Appuyez sur Entrée..."
         return
     fi
     
     echo ""
-    echo "Sauvegarde sélectionnée: $backup_path"
-    echo "Taille: $(du -sh $backup_path | cut -f1)"
+    echo "Sauvegarde : $backup_path"
+    echo "Taille     : $(du -sh $backup_path | cut -f1)"
     echo ""
     
     # Menu de restauration
-    echo "QUE VOULEZ-VOUS RESTAURER?"
-    echo "──────────────────────────"
-    echo "1. Tout restaurer (restauration complète)"
-    echo "2. Uniquement les homes utilisateurs"
-    echo "3. Uniquement les bases MySQL"
-    echo "4. Uniquement la base LDAP"
+    echo "QUE RESTAURER ?"
+    echo "───────────────"
+    echo "1. Tout (restauration complète)"
+    echo "2. Uniquement les homes"
+    echo "3. Uniquement MySQL"
+    echo "4. Uniquement LDAP"
     echo "5. Uniquement WordPress"
     echo "6. Annuler"
     echo ""
     
-    read -p "Votre choix [1-6]: " choice
+    read -p "Choix [1-6] : " choice
     
     case $choice in
-        1)
-            restore_all "$backup_path"
-            ;;
-        2)
-            restore_homes_only "$backup_path"
-            ;;
-        3)
-            restore_mysql_only "$backup_path"
-            ;;
-        4)
-            restore_ldap_only "$backup_path"
-            ;;
-        5)
-            restore_wordpress_only "$backup_path"
-            ;;
-        *)
-            echo "Restauration annulée"
-            ;;
+        1) restore_all "$backup_path" ;;
+        2) restore_homes_only "$backup_path" ;;
+        3) restore_mysql_only "$backup_path" ;;
+        4) restore_ldap_only "$backup_path" ;;
+        5) restore_wordpress_only "$backup_path" ;;
+        *) echo "Annulé" ;;
     esac
     
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    read -p "Appuyez sur Entrée..."
 }
 
 restore_all() {
     local backup_path=$1
     
-    log "INFO" "Restauration complète depuis: $backup_path"
+    log "INFO" "Restauration complète"
     
-    # Vérifier les checksums d'abord
+    # Vérifier les checksums
     if [ -f "$backup_path/checksums.sha256" ]; then
-        echo "Vérification de l'intégrité..."
+        echo "Vérification intégrité..."
         if ! sha256sum -c "$backup_path/checksums.sha256" > /dev/null 2>&1; then
-            log "ERROR" "La sauvegarde est corrompue!"
+            log "ERROR" "Sauvegarde corrompue"
             return 1
         fi
     fi
     
-    # Restaurer les homes
+    # Restaurer dans l'ordre
     restore_homes_only "$backup_path"
-    
-    # Restaurer MySQL
     restore_mysql_only "$backup_path"
-    
-    # Restaurer LDAP
     restore_ldap_only "$backup_path"
-    
-    # Restaurer WordPress
     restore_wordpress_only "$backup_path"
     
     log "SUCCESS" "Restauration complète terminée"
@@ -960,129 +902,115 @@ restore_all() {
 restore_homes_only() {
     local backup_path=$1
     
-    log "INFO" "Restauration des homes utilisateurs"
+    log "INFO" "Restauration homes"
     
-    # Trouver la dernière sauvegarde complète des homes
     local home_backup=$(find "$backup_path/homes" -name "homes_full_*.tar.gz" | sort -r | head -1)
     
     if [ ! -f "$home_backup" ]; then
-        log "ERROR" "Aucune sauvegarde de homes trouvée"
+        log "ERROR" "Aucune sauvegarde homes"
         return 1
     fi
     
-    echo "Restauration depuis: $(basename $home_backup)"
-    read -p "Confirmer la restauration des homes? (O/n): " confirm
+    echo "Restauration depuis : $(basename $home_backup)"
+    read -p "Confirmer ? (o/N) : " confirm
     
-    if [[ "$confirm" == "n" || "$confirm" == "N" ]]; then
+    if [[ "$confirm" != "o" && "$confirm" != "O" ]]; then
         return
     fi
     
-    # Extraire
     tar -xzf "$home_backup" -C /
-    
-    log "SUCCESS" "Homes utilisateurs restaurés"
+    log "SUCCESS" "Homes restaurés"
 }
 
 restore_mysql_only() {
     local backup_path=$1
     
-    log "INFO" "Restauration des bases MySQL"
+    log "INFO" "Restauration MySQL"
     
-    # Trouver la sauvegarde complète
     local mysql_backup=$(find "$backup_path/mysql" -name "all_databases_*.sql.gz" | head -1)
     
     if [ ! -f "$mysql_backup" ]; then
-        log "ERROR" "Aucune sauvegarde MySQL trouvée"
+        log "ERROR" "Aucune sauvegarde MySQL"
         return 1
     fi
     
-    echo "Restauration depuis: $(basename $mysql_backup)"
-    read -p "Confirmer la restauration MySQL? (O/n): " confirm
+    echo "Restauration depuis : $(basename $mysql_backup)"
+    read -p "Confirmer ? (o/N) : " confirm
     
-    if [[ "$confirm" == "n" || "$confirm" == "N" ]]; then
+    if [[ "$confirm" != "o" && "$confirm" != "O" ]]; then
         return
     fi
     
-    # Restaurer
     gunzip -c "$mysql_backup" | mysql --user="$MYSQL_USER" --password="$MYSQL_PASS"
-    
-    log "SUCCESS" "Bases MySQL restaurées"
+    log "SUCCESS" "MySQL restauré"
 }
 
 restore_ldap_only() {
     local backup_path=$1
     
-    log "INFO" "Restauration de la base LDAP"
+    log "INFO" "Restauration LDAP"
     
     local ldap_backup=$(find "$backup_path/ldap" -name "ldap_*.ldif.gz" | head -1)
     
     if [ ! -f "$ldap_backup" ]; then
-        log "ERROR" "Aucune sauvegarde LDAP trouvée"
+        log "ERROR" "Aucune sauvegarde LDAP"
         return 1
     fi
     
-    echo "Restauration depuis: $(basename $ldap_backup)"
-    read -p "Confirmer la restauration LDAP? (O/n): " confirm
+    echo "Restauration depuis : $(basename $ldap_backup)"
+    read -p "Confirmer ? (o/N) : " confirm
     
-    if [[ "$confirm" == "n" || "$confirm" == "N" ]]; then
+    if [[ "$confirm" != "o" && "$confirm" != "O" ]]; then
         return
     fi
     
-    # Arrêter le service LDAP
-    systemctl stop slapd
-    
-    # Restaurer
+    /etc/init.d/slapd stop
     gunzip -c "$ldap_backup" | slapadd -v
+    /etc/init.d/slapd start
     
-    # Redémarrer
-    systemctl start slapd
-    
-    log "SUCCESS" "Base LDAP restaurée"
+    log "SUCCESS" "LDAP restauré"
 }
 
 restore_wordpress_only() {
     local backup_path=$1
     
-    log "INFO" "Restauration de WordPress"
+    log "INFO" "Restauration WordPress"
     
     local wp_backup=$(find "$backup_path/wordpress" -name "files_*.tar.gz" | head -1)
     
     if [ ! -f "$wp_backup" ]; then
-        log "ERROR" "Aucune sauvegarde WordPress trouvée"
+        log "ERROR" "Aucune sauvegarde WordPress"
         return 1
     fi
     
-    echo "Restauration depuis: $(basename $wp_backup)"
-    read -p "Confirmer la restauration WordPress? (O/n): " confirm
+    echo "Restauration depuis : $(basename $wp_backup)"
+    read -p "Confirmer ? (o/N) : " confirm
     
-    if [[ "$confirm" == "n" || "$confirm" == "N" ]]; then
+    if [[ "$confirm" != "o" && "$confirm" != "O" ]]; then
         return
     fi
     
-    # Extraire
     tar -xzf "$wp_backup" -C /
-    
     log "SUCCESS" "WordPress restauré"
 }
 
 # ----------------------------------------------------------------------------
 # EXERCICE 6.20 : RESTAURATION UTILISATEUR "raj"
 # ----------------------------------------------------------------------------
-exercice_6_20() {
+restore_user_raj() {
     print_header
-    echo "EXERCICE 6.20: RESTAURATION DE L'UTILISATEUR 'raj'"
-    echo "──────────────────────────────────────────────────"
+    print_section "EXERCICE 6.20 : RESTAURATION UTILISATEUR 'raj'"
     
-    echo "Scénario: L'utilisateur 'raj' a supprimé son dossier 'htop-dev'"
+    echo "Scénario : L'utilisateur 'raj' a supprimé son dossier 'htop-dev'"
     echo "et souhaite le récupérer depuis les sauvegardes."
     echo ""
     
-    # Vérifier si l'utilisateur existe
+    # Vérifier l'utilisateur
     if ! id "raj" > /dev/null 2>&1; then
-        log "WARNING" "L'utilisateur 'raj' n'existe pas sur ce système"
-        read -p "Créer l'utilisateur 'raj' maintenant? (O/n): " choice
+        echo "L'utilisateur 'raj' n'existe pas."
+        read -p "Le créer ? (o/N) : " choice
         
-        if [[ "$choice" != "n" && "$choice" != "N" ]]; then
+        if [[ "$choice" == "o" || "$choice" == "O" ]]; then
             useradd -m raj
             echo "Utilisateur 'raj' créé"
         else
@@ -1090,168 +1018,157 @@ exercice_6_20() {
         fi
     fi
     
-    # Lister les sauvegardes disponibles
+    # Chercher les sauvegardes récentes
     echo ""
-    echo "Recherche des sauvegardes contenant l'utilisateur 'raj'..."
+    echo "Recherche des sauvegardes contenant 'raj'..."
     
-    # Chercher dans les sauvegardes récentes
-    local recent_backups=$(find "$BACKUP_ROOT" -type d -name "*_full" | sort -r | head -5)
+    local recent_backups=$(find "$BACKUP_ROOT" -type d -name "*_full" | sort -r | head -3)
     
     for backup in $recent_backups; do
         local home_backup=$(find "$backup/homes" -name "*.tar.gz" | head -1)
         
         if [ -f "$home_backup" ] && tar -tzf "$home_backup" | grep -q "^home/raj/"; then
             echo ""
-            echo "✓ Sauvegarde trouvée: $(basename $backup)"
-            echo "  Date: $(echo $backup | grep -o '[0-9]\{8\}_[0-9]\{6\}')"
-            echo "  Fichier: $(basename $home_backup)"
+            echo "✓ Sauvegarde trouvée : $(basename $backup)"
+            echo "  Date : $(echo $backup | grep -o '[0-9]\{8\}_[0-9]\{6\}')"
             
-            read -p "Restaurer le home de 'raj' depuis cette sauvegarde? (O/n): " choice
+            read -p "Restaurer 'raj' depuis cette sauvegarde ? (o/N) : " choice
             
-            if [[ "$choice" != "n" && "$choice" != "N" ]]; then
+            if [[ "$choice" == "o" || "$choice" == "O" ]]; then
                 restore_single_user "raj" "$home_backup"
                 return
             fi
         fi
     done
     
-    log "ERROR" "Aucune sauvegarde de l'utilisateur 'raj' trouvée"
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    log "ERROR" "Aucune sauvegarde de 'raj' trouvée"
+    read -p "Appuyez sur Entrée..."
 }
 
 restore_single_user() {
     local username=$1
     local backup_file=$2
     
-    log "INFO" "Restauration de l'utilisateur: $username"
+    log "INFO" "Restauration de $username"
     
-    # Sauvegarder les fichiers actuels
+    # Sauvegarde des fichiers actuels
     local backup_dir="/home/${username}_backup_$(date +%Y%m%d_%H%M%S)"
     
     if [ -d "/home/$username" ]; then
-        echo "Sauvegarde des fichiers actuels vers: $backup_dir"
+        echo "Sauvegarde actuelle vers : $backup_dir"
         cp -r "/home/$username" "$backup_dir"
     fi
     
-    # Extraire seulement le répertoire de l'utilisateur
-    echo "Extraction des fichiers depuis la sauvegarde..."
-    
-    # Créer le répertoire s'il n'existe pas
+    # Extraire
+    echo "Extraction depuis sauvegarde..."
     mkdir -p "/home/$username"
     
-    # Extraire
     tar -xzf "$backup_file" \
         --directory="/" \
         --preserve-permissions \
         "home/$username"
     
-    # Ajuster les permissions
+    # Permissions
     chown -R "$username:$username" "/home/$username"
     
     echo ""
     echo "═══════════════════════════════════════════════════"
     echo "RESTAURATION RÉUSSIE"
     echo "────────────────────"
-    echo "Utilisateur: $username"
-    echo "Source: $(basename $backup_file)"
-    echo "Destination: /home/$username"
-    echo "Sauvegarde précédente: $backup_dir"
+    echo "Utilisateur : $username"
+    echo "Source      : $(basename $backup_file)"
+    echo "Destination : /home/$username"
+    echo "Sauvegarde  : $backup_dir"
     echo "═══════════════════════════════════════════════════"
     
-    # Vérifier si le dossier htop-dev existe
+    # Vérifier htop-dev
     if [ -d "/home/$username/htop-dev" ]; then
         echo ""
-        echo "✅ Le dossier 'htop-dev' a été restauré avec succès"
+        echo "✅ Dossier 'htop-dev' restauré"
         ls -la "/home/$username/htop-dev/"
     else
         echo ""
-        echo "⚠ Le dossier 'htop-dev' n'a pas été trouvé dans la sauvegarde"
+        echo "⚠ Dossier 'htop-dev' non trouvé"
     fi
 }
 
 # ----------------------------------------------------------------------------
-# EXERCICE 6.21 BONUS : LVM SNAPSHOTS
+# EXERCICE 6.21 : LVM SNAPSHOTS (BONUS)
 # ----------------------------------------------------------------------------
-exercice_6_21() {
+lvm_snapshots() {
     print_header
-    echo "EXERCICE 6.21 BONUS: UTILISATION DE LVM POUR LES SNAPSHOTS"
-    echo "──────────────────────────────────────────────────────────"
+    print_section "EXERCICE 6.21 : LVM SNAPSHOTS (BONUS)"
     
     echo "Cette fonction utilise LVM pour créer des snapshots cohérents"
-    echo "des homes utilisateurs pendant les sauvegardes."
+    echo "pendant les sauvegardes."
     echo ""
     
-    # Vérifier si LVM est disponible
+    # Vérifier LVM
     if ! command -v lvcreate > /dev/null 2>&1; then
-        log "ERROR" "LVM n'est pas installé"
-        echo "Installer LVM avec: emerge -av sys-fs/lvm2"
-        read -p "Appuyez sur Entrée pour continuer..." dummy
+        log "ERROR" "LVM non installé"
+        echo "Installer : emerge -av sys-fs/lvm2"
+        read -p "Appuyez sur Entrée..."
         return
     fi
     
-    # Chercher un volume logique contenant /home
+    # Chercher un volume LVM pour /home
     local home_lv=$(df /home 2>/dev/null | awk 'NR==2 {print $1}')
     
     if [[ ! $home_lv =~ /dev/mapper/ ]]; then
-        log "ERROR" "/home n'est pas sur un volume LVM"
-        echo "Configuration LVM requise pour cette fonctionnalité"
-        read -p "Appuyez sur Entrée pour continuer..." dummy
+        log "ERROR" "/home n'est pas sur LVM"
+        echo "Configuration LVM requise."
+        read -p "Appuyez sur Entrée..."
         return
     fi
     
-    # Extraire les informations LVM
+    # Informations
     local vg_name=$(echo "$home_lv" | cut -d'/' -f4 | cut -d'-' -f1)
     local lv_name=$(echo "$home_lv" | cut -d'/' -f4 | cut -d'-' -f2)
     
-    echo "Configuration LVM détectée:"
-    echo "  Volume Group: $vg_name"
-    echo "  Logical Volume: $lv_name"
-    echo "  Chemin: $home_lv"
+    echo "LVM détecté :"
+    echo "• Volume Group : $vg_name"
+    echo "• Logical Volume : $lv_name"
+    echo "• Chemin : $home_lv"
     echo ""
     
-    echo "Options disponibles:"
-    echo "───────────────────"
-    echo "1. Créer un snapshot manuel"
-    echo "2. Configurer les snapshots automatiques"
-    echo "3. Lister les snapshots existants"
-    echo "4. Supprimer un snapshot"
-    echo "5. Retour"
+    echo "Options :"
+    echo "1. Créer un snapshot"
+    echo "2. Lister les snapshots"
+    echo "3. Supprimer un snapshot"
+    echo "4. Retour"
     echo ""
     
-    read -p "Votre choix [1-5]: " choice
+    read -p "Choix [1-4] : " choice
     
     case $choice in
         1)
-            create_lvm_snapshot_manual "$vg_name" "$lv_name"
+            create_snapshot "$vg_name" "$lv_name"
             ;;
         2)
-            configure_lvm_auto_snapshots "$vg_name" "$lv_name"
+            list_snapshots "$vg_name"
             ;;
         3)
-            list_lvm_snapshots "$vg_name"
-            ;;
-        4)
-            delete_lvm_snapshot "$vg_name"
+            delete_snapshot "$vg_name"
             ;;
     esac
     
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    read -p "Appuyez sur Entrée..."
 }
 
-create_lvm_snapshot_manual() {
+create_snapshot() {
     local vg=$1
     local lv=$2
     
     local snapshot_name="${lv}_snapshot_$(date +%Y%m%d_%H%M%S)"
     local snapshot_size="5G"
     
-    echo "Création du snapshot: $snapshot_name"
-    echo "Taille: $snapshot_size"
+    echo "Création snapshot : $snapshot_name"
+    echo "Taille : $snapshot_size"
     echo ""
     
-    read -p "Confirmer la création? (O/n): " choice
+    read -p "Confirmer ? (o/N) : " choice
     
-    if [[ "$choice" == "n" || "$choice" == "N" ]]; then
+    if [[ "$choice" != "o" && "$choice" != "O" ]]; then
         return
     fi
     
@@ -1259,28 +1176,27 @@ create_lvm_snapshot_manual() {
                 --name "$snapshot_name" \
                 --size "$snapshot_size" \
                 "/dev/$vg/$lv"; then
-        log "SUCCESS" "Snapshot créé: $snapshot_name"
+        log "SUCCESS" "Snapshot créé"
         
-        # Monter le snapshot
+        # Monter
         local mount_point="/mnt/snapshot_$snapshot_name"
         mkdir -p "$mount_point"
         
         if mount -o ro "/dev/$vg/$snapshot_name" "$mount_point"; then
             echo ""
-            echo "Snapshot monté sur: $mount_point"
-            echo "Contenu:"
+            echo "Snapshot monté sur : $mount_point"
+            echo "Contenu :"
             ls -la "$mount_point/"
-            echo ""
-            read -p "Démonter le snapshot? (O/n): " unmount_choice
             
-            if [[ "$unmount_choice" != "n" && "$unmount_choice" != "N" ]]; then
+            read -p "Démonter ? (o/N) : " unmount_choice
+            if [[ "$unmount_choice" == "o" || "$unmount_choice" == "O" ]]; then
                 umount "$mount_point"
                 rmdir "$mount_point"
                 log "INFO" "Snapshot démonté"
             fi
         fi
     else
-        log "ERROR" "Échec de la création du snapshot"
+        log "ERROR" "Échec création snapshot"
     fi
 }
 
@@ -1288,18 +1204,18 @@ create_lvm_snapshot_manual() {
 # FONCTIONS UTILITAIRES
 # ----------------------------------------------------------------------------
 list_backups() {
-    echo "SAUVEGARDES DISPONIBLES:"
-    echo "───────────────────────"
+    echo "BACKUPS DISPONIBLES :"
+    echo "────────────────────"
     
     if [ ! -d "$BACKUP_ROOT" ]; then
-        echo "Aucune sauvegarde trouvée"
+        echo "Aucune sauvegarde"
         return
     fi
     
     local backups=$(find "$BACKUP_ROOT" -maxdepth 1 -type d -name "*_*" | sort -r)
     
     if [ -z "$backups" ]; then
-        echo "Aucune sauvegarde disponible"
+        echo "Aucune sauvegarde"
         return
     fi
     
@@ -1322,69 +1238,65 @@ list_backups_simple() {
     done
 }
 
-cleanup_old_backups() {
+cleanup_old() {
     print_header
-    echo "NETTOYAGE DES ANCIENNES SAUVEGARDES"
-    echo "───────────────────────────────────"
+    print_section "NETTOYAGE DES ANCIENNES SAUVEGARDES"
     
     echo "Suppression des sauvegardes de plus de $RETENTION_DAYS jours..."
     echo ""
     
     local count=0
-    local freed_space=0
+    local freed=0
     
     find "$BACKUP_ROOT" -maxdepth 1 -type d -name "*_*" | while read backup; do
         local backup_date=$(basename "$backup" | cut -d_ -f1)
-        
-        # Convertir la date en format epoch
         local backup_epoch=$(date -d "${backup_date:0:4}-${backup_date:4:2}-${backup_date:6:2}" +%s 2>/dev/null)
         local current_epoch=$(date +%s)
         local age_days=$(( (current_epoch - backup_epoch) / 86400 ))
         
         if [ $age_days -gt $RETENTION_DAYS ]; then
             local size=$(du -sk "$backup" 2>/dev/null | cut -f1)
-            echo "  Suppression: $(basename $backup) (âge: $age_days jours, taille: $(echo "scale=1; $size/1024" | bc) MB)"
+            echo "  Suppression : $(basename $backup) ($age_days jours, $(echo "scale=1; $size/1024" | bc) MB)"
             rm -rf "$backup"
             count=$((count + 1))
-            freed_space=$((freed_space + size))
+            freed=$((freed + size))
         fi
     done
     
     echo ""
-    echo "RÉSUMÉ DU NETTOYAGE:"
-    echo "  Sauvegardes supprimées: $count"
-    echo "  Espace libéré: $(echo "scale=1; $freed_space/1024" | bc) MB"
+    echo "RÉSUMÉ :"
+    echo "• Sauvegardes supprimées : $count"
+    echo "• Espace libéré : $(echo "scale=1; $freed/1024" | bc) MB"
     
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    read -p "Appuyez sur Entrée..."
 }
 
 verify_system() {
     print_header
-    echo "VÉRIFICATION DU SYSTÈME DE BACKUP"
-    echo "─────────────────────────────────"
+    print_section "VÉRIFICATION DU SYSTÈME"
     
     local errors=0
     
-    echo "1. Vérification du point de montage..."
+    echo "1. Point de montage..."
     if mountpoint -q "$BACKUP_ROOT"; then
-        echo "   ✓ $BACKUP_ROOT est monté"
-        echo "     Espace disponible: $(df -h $BACKUP_ROOT | awk 'NR==2 {print $4}')"
+        echo "   ✓ $BACKUP_ROOT monté"
+        echo "     Espace : $(df -h $BACKUP_ROOT | awk 'NR==2 {print $4}') libre"
     else
-        echo "   ✗ $BACKUP_ROOT n'est pas monté"
+        echo "   ✗ $BACKUP_ROOT non monté"
         errors=$((errors + 1))
     fi
     
     echo ""
-    echo "2. Vérification des permissions..."
+    echo "2. Permissions..."
     local perms=$(stat -c "%a" "$BACKUP_ROOT" 2>/dev/null)
     if [ "$perms" = "750" ] || [ "$perms" = "700" ]; then
-        echo "   ✓ Permissions sécurisées: $perms"
+        echo "   ✓ Permissions $perms OK"
     else
-        echo "   ⚠ Permissions non optimales: $perms"
+        echo "   ⚠ Permissions $perms non optimales"
     fi
     
     echo ""
-    echo "3. Vérification des dépendances..."
+    echo "3. Dépendances..."
     local deps=("tar" "gzip" "mysqldump" "ldapsearch" "sha256sum")
     for dep in "${deps[@]}"; do
         if command -v "$dep" > /dev/null 2>&1; then
@@ -1396,129 +1308,142 @@ verify_system() {
     done
     
     echo ""
-    echo "4. Vérification des services..."
-    if systemctl is-active mysql > /dev/null 2>&1 || systemctl is-active mariadb > /dev/null 2>&1; then
+    echo "4. Services..."
+    if /etc/init.d/mysql status > /dev/null 2>&1 || /etc/init.d/mariadb status > /dev/null 2>&1; then
         echo "   ✓ MySQL/MariaDB actif"
     else
         echo "   ⚠ MySQL/MariaDB inactif"
     fi
     
-    if systemctl is-active slapd > /dev/null 2>&1; then
+    if /etc/init.d/slapd status > /dev/null 2>&1; then
         echo "   ✓ LDAP actif"
     else
         echo "   ⚠ LDAP inactif"
     fi
     
     echo ""
-    echo "5. Vérification des sauvegardes..."
+    echo "5. Sauvegardes..."
     local backup_count=$(find "$BACKUP_ROOT" -maxdepth 1 -type d -name "*_*" 2>/dev/null | wc -l)
     if [ $backup_count -gt 0 ]; then
-        echo "   ✓ $backup_count sauvegarde(s) disponible(s)"
+        echo "   ✓ $backup_count sauvegarde(s)"
         
-        # Vérifier la dernière sauvegarde
         local last_backup=$(find "$BACKUP_ROOT" -maxdepth 1 -type d -name "*_*" | sort -r | head -1)
         if [ -d "$last_backup" ]; then
             local checksum_file="$last_backup/checksums.sha256"
             if [ -f "$checksum_file" ]; then
                 if sha256sum -c "$checksum_file" > /dev/null 2>&1; then
-                    echo "   ✓ Dernière sauvegarde vérifiée: $(basename $last_backup)"
+                    echo "   ✓ Dernière sauvegarde OK : $(basename $last_backup)"
                 else
-                    echo "   ✗ Dernière sauvegarde corrompue: $(basename $last_backup)"
+                    echo "   ✗ Dernière sauvegarde corrompue"
                     errors=$((errors + 1))
                 fi
             fi
         fi
     else
-        echo "   ⚠ Aucune sauvegarde disponible"
+        echo "   ⚠ Aucune sauvegarde"
     fi
     
     echo ""
     echo "═══════════════════════════════════════════════════"
     if [ $errors -eq 0 ]; then
-        echo "✅ SYSTÈME DE BACKUP EN BON ÉTAT"
+        echo "✅ SYSTÈME OK"
     else
-        echo "⚠ SYSTÈME DE BACKUP AVEC $errors ERREUR(S)"
+        echo "⚠ $errors ERREUR(S)"
     fi
     echo "═══════════════════════════════════════════════════"
     
-    read -p "Appuyez sur Entrée pour continuer..." dummy
+    read -p "Appuyez sur Entrée..."
+}
+
+show_logs() {
+    print_header
+    print_section "CONSULTATION DES LOGS"
+    
+    echo "Logs disponibles :"
+    echo "────────────────"
+    ls -la "$LOG_DIR/"*.log 2>/dev/null || echo "Aucun log"
+    echo ""
+    
+    read -p "Nom du fichier (sans chemin) : " logfile
+    if [ -f "$LOG_DIR/$logfile" ]; then
+        echo ""
+        echo "Contenu de $logfile :"
+        echo "────────────────────"
+        tail -50 "$LOG_DIR/$logfile"
+    else
+        log "ERROR" "Fichier non trouvé"
+    fi
+    
+    read -p "Appuyez sur Entrée..."
 }
 
 # ----------------------------------------------------------------------------
 # MENU PRINCIPAL
 # ----------------------------------------------------------------------------
-show_main_menu() {
+show_menu() {
     while true; do
         print_header
-        print_menu
-        
-        echo "CONFIGURATION:"
-        echo "  1. Exercice 6.6-6.7 - Configurer le disque de backup"
-        echo "  2. Exercice 6.9 - Voir l'organisation des backups"
-        echo "  3. Exercice 6.17 - Configurer les tâches cron"
+        echo "MENU PRINCIPAL"
+        echo "══════════════════════════════════════════════════════════════"
         echo ""
         
-        echo "SAUVEGARDES:"
-        echo "  4. Exercice 6.18 - Générer des backups de test"
-        echo "  5. Sauvegarde complète (full)"
-        echo "  6. Sauvegarde incrémentale (incremental)"
-        echo "  7. Sauvegarde différentielle (differential)"
+        echo "📚 THÉORIE ET CONFIGURATION :"
+        echo "  1. Exercices 6.1-6.5 - Théorie et planning"
+        echo "  2. Exercices 6.6-6.7 - Configurer le disque de backup"
+        echo "  3. Installation des dépendances (résout problème MariaDB)"
+        echo "  4. Exercice 6.9 - Organisation des backups"
+        echo "  5. Exercice 6.17 - Configurer cron"
         echo ""
         
-        echo "RESTAURATION:"
-        echo "  8. Exercice 6.19 - Transfert et restauration complète"
-        echo "  9. Exercice 6.20 - Restaurer l'utilisateur 'raj'"
+        echo "💾 SAUVEGARDES :"
+        echo "  6. Exercice 6.18 - Générer backups test (full + incr)"
+        echo "  7. Sauvegarde complète (full)"
+        echo "  8. Sauvegarde incrémentale (incremental)"
+        echo "  9. Sauvegarde différentielle (differential)"
         echo ""
         
-        echo "ADMINISTRATION:"
-        echo "  10. Exercice 6.21 Bonus - Gestion LVM Snapshots"
-        echo "  11. Lister les sauvegardes disponibles"
-        echo "  12. Nettoyer les anciennes sauvegardes"
-        echo "  13. Vérifier l'état du système"
-        echo "  14. Afficher les logs"
+        echo "🔄 RESTAURATION :"
+        echo "  10. Exercice 6.19 - Restauration complète"
+        echo "  11. Exercice 6.20 - Restaurer utilisateur 'raj'"
+        echo ""
+        
+        echo "⚙️  ADMINISTRATION :"
+        echo "  12. Exercice 6.21 - LVM Snapshots (bonus)"
+        echo "  13. Lister les sauvegardes"
+        echo "  14. Nettoyer anciennes sauvegardes"
+        echo "  15. Vérifier l'état du système"
+        echo "  16. Consulter les logs"
         echo ""
         
         echo "  0. Quitter"
         echo ""
         
-        read -p "Votre choix [0-14]: " choice
+        read -p "Votre choix [0-16] : " choice
         
         case $choice in
-            1) exercice_6_6_7 ;;
-            2) exercice_6_9 ;;
-            3) exercice_6_17 ;;
-            4) exercice_6_18 ;;
-            5) perform_backup "full" ;;
-            6) perform_backup "incremental" ;;
-            7) perform_backup "differential" ;;
-            8) exercice_6_19 ;;
-            9) exercice_6_20 ;;
-            10) exercice_6_21 ;;
-            11) 
+            1) show_theory ;;
+            2) configure_disk ;;
+            3) install_dependencies ;;
+            4) show_organization ;;
+            5) configure_cron ;;
+            6) generate_test_backups ;;
+            7) perform_backup "full" ;;
+            8) perform_backup "incremental" ;;
+            9) perform_backup "differential" ;;
+            10) restore_complete ;;
+            11) restore_user_raj ;;
+            12) lvm_snapshots ;;
+            13) 
                 print_header
                 list_backups
-                read -p "Appuyez sur Entrée pour continuer..." dummy
+                read -p "Appuyez sur Entrée..."
                 ;;
-            12) cleanup_old_backups ;;
-            13) verify_system ;;
-            14) 
-                print_header
-                echo "LOGS DISPONIBLES:"
-                echo "────────────────"
-                ls -la "$LOG_DIR/"*.log 2>/dev/null || echo "Aucun log disponible"
-                echo ""
-                read -p "Nom du fichier log (sans chemin): " logfile
-                if [ -f "$LOG_DIR/$logfile" ]; then
-                    echo ""
-                    echo "Contenu de $logfile:"
-                    echo "────────────────────"
-                    tail -50 "$LOG_DIR/$logfile"
-                fi
-                read -p "Appuyez sur Entrée pour continuer..." dummy
-                ;;
+            14) cleanup_old ;;
+            15) verify_system ;;
+            16) show_logs ;;
             0)
                 echo ""
-                echo "Merci d'avoir utilisé le script TP6 de sauvegarde!"
+                echo "Merci d'avoir utilisé le script TP6 !"
                 echo ""
                 exit 0
                 ;;
@@ -1531,95 +1456,66 @@ show_main_menu() {
 }
 
 # ----------------------------------------------------------------------------
-# MODE CRON (exécution non-interactive)
+# MODE CRON (non-interactif)
 # ----------------------------------------------------------------------------
 cron_mode() {
     local action=$1
     
     case $action in
-        "full")
-            perform_backup "full"
-            ;;
-        "incremental")
-            perform_backup "incremental"
-            ;;
-        "differential")
-            perform_backup "differential"
-            ;;
-        "cleanup")
-            cleanup_old_backups
-            ;;
-        "verify")
-            verify_system
-            ;;
-        "test-restore")
-            echo "Test de restauration cron - non implémenté en mode automatique"
-            ;;
+        "full") perform_backup "full" ;;
+        "incremental") perform_backup "incremental" ;;
+        "differential") perform_backup "differential" ;;
+        "cleanup") cleanup_old ;;
+        "verify") verify_system ;;
+        *) echo "Action cron inconnue: $action" ;;
     esac
 }
 
 # ----------------------------------------------------------------------------
-# MODE RESTAURATION RAPIDE
-# ----------------------------------------------------------------------------
-restore_mode() {
-    local backup_path=$1
-    
-    if [ ! -d "$backup_path" ]; then
-        echo "ERREUR: Le chemin de sauvegarde n'existe pas: $backup_path"
-        exit 1
-    fi
-    
-    echo "Mode restauration rapide activé"
-    echo "Sauvegarde: $backup_path"
-    echo ""
-    
-    restore_all "$backup_path"
-}
-
-# ----------------------------------------------------------------------------
-# POINT D'ENTRÉE PRINCIPAL
+# POINT D'ENTRÉE
 # ----------------------------------------------------------------------------
 main() {
-    # Créer le répertoire de logs
+    # Créer répertoire logs
     mkdir -p "$LOG_DIR"
+    
+    # Vérifier root
+    if [ "$EUID" -ne 0 ]; then
+        echo "Ce script doit être exécuté en tant que root."
+        echo "Utilisez: sudo $0"
+        exit 1
+    fi
     
     # Mode d'exécution
     case "$1" in
         "--cron")
-            # Mode non-interactif pour cron
             cron_mode "$2"
             ;;
         "--restore")
-            # Mode restauration rapide
-            restore_mode "$2"
+            if [ -d "$2" ]; then
+                restore_all "$2"
+            else
+                echo "Chemin invalide: $2"
+                exit 1
+            fi
             ;;
         "--help"|"-h")
             print_header
             echo "UTILISATION:"
             echo "  $0                    # Mode interactif avec menu"
-            echo "  $0 --cron <action>   # Mode cron (full|incremental|differential|cleanup|verify)"
-            echo "  $0 --restore <path>  # Restauration rapide depuis le chemin spécifié"
-            echo "  $0 --help            # Afficher cette aide"
+            echo "  $0 --cron <action>   # Mode cron"
+            echo "  $0 --restore <path>  # Restauration rapide"
+            echo "  $0 --help            # Aide"
             echo ""
-            echo "EXEMPLES:"
-            echo "  $0                           # Lancer le menu interactif"
-            echo "  $0 --cron full               # Exécuter une sauvegarde complète"
-            echo "  $0 --restore /mnt/backup/20240115_020000_full"
+            echo "ACTIONS CRON:"
+            echo "  full, incremental, differential, cleanup, verify"
             echo ""
             exit 0
             ;;
         *)
-            # Mode interactif par défaut
-            init_system
-            show_main_menu
+            show_menu
             ;;
     esac
 }
-
-# ----------------------------------------------------------------------------
-# GESTION DES SIGNALS
-# ----------------------------------------------------------------------------
-trap 'echo ""; echo "Interruption reçue. Arrêt en cours..."; exit 1' INT TERM
 
 # ----------------------------------------------------------------------------
 # LANCER LE SCRIPT
