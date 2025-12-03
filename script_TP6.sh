@@ -1,16 +1,16 @@
 #!/bin/bash
-# TP6 - Script pratique uniquement
+# TP6 - Script pratique uniquement - VERSION FDISK
 
 set -e
 
 # Configuration
 BACKUP_DIR="/backup"
 MYSQL_USER="root"
-MYSQL_PASS="votre_mot_de_passe_mysql"
+MYSQL_PASS="adminsys"
 LDAP_BASE="dc=istycorp,dc=com"
 DATE=$(date +%Y%m%d_%H%M%S)
 
-# 1. Préparation du disque (Exercice 6.6-6.7)
+# 1. Préparation du disque (Exercice 6.6-6.7) - VERSION FDISK
 echo "=== Préparation du disque de sauvegarde ==="
 if [[ ! -b /dev/sdb ]]; then
     echo "ERREUR: Ajoutez d'abord un disque dur via VirtualBox/Virt-manager"
@@ -18,10 +18,15 @@ if [[ ! -b /dev/sdb ]]; then
     exit 1
 fi
 
-# Formater le disque
-echo "Formatage de /dev/sdb..."
-parted /dev/sdb mklabel gpt --script
-parted /dev/sdb mkpart primary ext4 0% 100% --script
+# Créer une partition avec fdisk
+echo "Création de la partition sur /dev/sdb..."
+echo -e "n\np\n1\n\n\nw" | fdisk /dev/sdb
+
+# Attendre un moment pour que le kernel détecte la nouvelle partition
+sleep 2
+
+# Formater la partition
+echo "Formatage de /dev/sdb1 en ext4..."
 mkfs.ext4 /dev/sdb1
 
 # Monter le disque
